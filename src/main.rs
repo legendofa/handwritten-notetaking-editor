@@ -1,11 +1,12 @@
+pub mod datatypes;
+use crate::datatypes::*;
 use gio::prelude::*;
 use glib::*;
 use gtk::prelude::*;
 use gtk::*;
-
 use std::env::args;
 
-pub fn build_ui(application: &Application) {
+fn build_ui(application: &Application) {
 	let window = gtk::ApplicationWindow::new(application);
 
 	window.set_title("Handwritten notetaking editor");
@@ -13,6 +14,12 @@ pub fn build_ui(application: &Application) {
 	window.set_position(WindowPosition::Center);
 	window.set_default_size(800, 600);
 
+	application_layout(&window);
+
+	window.show_all();
+}
+
+fn application_layout(window: &ApplicationWindow) {
 	let menu_bar = menu_bar(&window);
 	let button_2 = DrawingArea::new();
 
@@ -27,8 +34,8 @@ pub fn build_ui(application: &Application) {
 	vertical_pack_0.pack_start(&horizontal_pack_1, true, true, 0);
 
 	for tool in tool_items() {
-		horizontal_pack_0.pack_start(&tool, false, false, 0);
-		tool.connect_clicked(|_| {
+		horizontal_pack_0.pack_start(&tool.button, false, false, 0);
+		tool.button.connect_clicked(|_| {
 			println!("Use this tool...");
 		});
 	}
@@ -37,8 +44,8 @@ pub fn build_ui(application: &Application) {
 	horizontal_pack_1.pack_start(&button_2, true, true, 0);
 
 	for page in pages() {
-		vertical_pack_1.pack_start(&page, false, false, 0);
-		page.connect_clicked(|_| {
+		vertical_pack_1.pack_start(&page.preview, false, false, 0);
+		page.preview.connect_clicked(|_| {
 			println!("Go to this page...");
 		});
 	}
@@ -46,25 +53,24 @@ pub fn build_ui(application: &Application) {
 	drawing_mechanics(button_2);
 
 	window.add(&vertical_pack_0);
-	window.show_all();
 }
 
-fn pages() -> Vec<Button> {
+fn pages() -> Vec<Page> {
 	vec![
-		Button::with_label("Page 1"),
-		Button::with_label("Page 2"),
-		Button::with_label("Page 3"),
-		Button::with_label("Page 4"),
-		Button::with_label("Page 5"),
+		Page::new(1),
+		Page::new(2),
+		Page::new(3),
+		Page::new(4),
+		Page::new(5),
 	]
 }
 
-fn tool_items() -> Vec<Button> {
+fn tool_items() -> Vec<DemoTool> {
 	vec![
-		Button::with_label("Undo"),
-		Button::with_label("Redo"),
-		Button::with_label("Paintbrush"),
-		Button::with_label("Eraser"),
+		DemoTool::new(Some("Undo"), None),
+		DemoTool::new(Some("Redo"), None),
+		DemoTool::new(Some("Paintbrush"), None),
+		DemoTool::new(Some("Eraser"), None),
 	]
 }
 
