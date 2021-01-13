@@ -13,7 +13,7 @@ fn build_ui(application: &gtk::Application) {
 	window.set_position(gtk::WindowPosition::Center);
 	window.set_default_size(800, 600);
 
-	let menu_bar = menu_bar();
+	let menu_bar = menu_bar(&window);
 
 	let button_0 = Button::with_label("Sidebar 0!");
 
@@ -22,7 +22,7 @@ fn build_ui(application: &gtk::Application) {
 	});
 
 	let button_1 = Button::with_label("Sidebar 1!");
-	let button_2 = Button::with_label("Draw here!");
+	let button_2 = DrawingArea::new();
 	let button_3 = Button::with_label("Taskbutton 0!");
 	let button_4 = Button::with_label("Taskbutton 1!");
 	let button_5 = Button::with_label("Taskbutton 2!");
@@ -53,16 +53,16 @@ fn build_ui(application: &gtk::Application) {
 	window.show_all();
 }
 
-fn menu_bar() -> MenuBar {
+fn menu_bar(window: &ApplicationWindow) -> MenuBar {
 	let menu = Menu::new();
 	let menu_bar = MenuBar::new();
 	let file = MenuItem::with_label("File");
 	let open_file = MenuItem::new();
 	open_file.add(&Label::new(Some("Open File")));
 
-	open_file.connect_activate(|_| {
+	open_file.connect_activate(clone!(@weak window => move |_| {
 		println!("File should be openend here...");
-	});
+	}));
 
 	let save_file = MenuItem::new();
 	save_file.add(&Label::new(Some("Save File")));
