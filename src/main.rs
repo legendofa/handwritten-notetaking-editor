@@ -4,6 +4,7 @@ use gio::prelude::*;
 use glib::*;
 use gtk::prelude::*;
 use gtk::*;
+use std::boxed::Box as Heap;
 use std::env::args;
 
 fn build_ui(application: &Application) {
@@ -59,12 +60,28 @@ fn pages() -> Vec<Page> {
 	]
 }
 
-fn tool_items() -> Vec<DemoTool> {
+fn tool_items() -> Vec<Tool> {
 	vec![
-		DemoTool::new(Some("Undo"), None),
-		DemoTool::new(Some("Redo"), None),
-		DemoTool::new(Some("Paintbrush"), None),
-		DemoTool::new(Some("Eraser"), None),
+		Tool::new(
+			Some("Undo"),
+			None,
+			Heap::new(Messenger::new("Undo an action...")),
+		),
+		Tool::new(
+			Some("Redo"),
+			None,
+			Heap::new(Messenger::new("Redo an action...")),
+		),
+		Tool::new(
+			Some("Paintbrush"),
+			None,
+			Heap::new(Messenger::new("Use the Paintbrush...")),
+		),
+		Tool::new(
+			Some("Eraser"),
+			None,
+			Heap::new(Messenger::new("Use the eraser...")),
+		),
 	]
 }
 
