@@ -1,5 +1,6 @@
 pub mod datatypes;
 use crate::datatypes::*;
+use gdk::*;
 use gio::prelude::*;
 use glib::*;
 use gtk::prelude::*;
@@ -112,53 +113,20 @@ fn menu_bar(window: &ApplicationWindow) -> MenuBar {
 }
 
 fn drawing_mechanics(area: DrawingArea) {
+	area.add_events(EventMask::POINTER_MOTION_MASK);
 	area.connect_draw(|_, cr| {
-		cr.set_dash(&[3., 2., 1.], 1.);
-
-		cr.scale(500f64, 500f64);
-
-		cr.set_source_rgb(250.0 / 255.0, 224.0 / 255.0, 55.0 / 255.0);
+		// paint canvas white
+		cr.set_source_rgb(1.0, 1.0, 1.0);
 		cr.paint();
 
-		cr.set_line_width(0.05);
-
-		// border
-		cr.set_source_rgb(0.3, 0.3, 0.3);
-		cr.rectangle(0.0, 0.0, 1.0, 1.0);
+		// draw 100 random black lines
+		cr.set_source_rgb(0.0, 0.0, 0.0);
+		for _i in 0..100 {
+			let x = rand::random::<f64>() * 600.0;
+			let y = rand::random::<f64>() * 600.0;
+			cr.line_to(x, y);
+		}
 		cr.stroke();
-
-		cr.set_line_width(0.03);
-
-		// draw circle
-		cr.arc(0.5, 0.5, 0.4, 0.0, 3.14 * 2.);
-		cr.stroke();
-
-		// mouth
-		let mouth_top = 0.68;
-		let mouth_width = 0.38;
-
-		let mouth_dx = 0.10;
-		let mouth_dy = 0.10;
-
-		cr.move_to(0.50 - mouth_width / 2.0, mouth_top);
-		cr.curve_to(
-			0.50 - mouth_dx,
-			mouth_top + mouth_dy,
-			0.50 + mouth_dx,
-			mouth_top + mouth_dy,
-			0.50 + mouth_width / 2.0,
-			mouth_top,
-		);
-
-		cr.stroke();
-
-		let eye_y = 0.38;
-		let eye_dx = 0.15;
-		cr.arc(0.5 - eye_dx, eye_y, 0.05, 0.0, 3.14 * 2.);
-		cr.fill();
-
-		cr.arc(0.5 + eye_dx, eye_y, 0.05, 0.0, 3.14 * 2.);
-		cr.fill();
 
 		Inhibit(false)
 	});
