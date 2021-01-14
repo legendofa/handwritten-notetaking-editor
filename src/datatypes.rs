@@ -14,10 +14,11 @@ pub struct DemoTool {
 
 impl DemoTool {
 	pub fn new(name: Option<&str>, icon: Option<Image>) -> Self {
-		Self {
-			icon,
-			button: Button::with_label(name.unwrap_or("Tool")),
-		}
+		let button = Button::with_label(name.unwrap_or("Tool"));
+		button.connect_clicked(|_| {
+			Self::apply();
+		});
+		Self { icon, button }
 	}
 }
 
@@ -35,12 +36,19 @@ pub struct Page {
 
 impl Page {
 	pub fn new(number: i32) -> Self {
+		let button =
+			Button::with_label(&(std::string::String::from("Page ") + &number.to_string()));
+		button.connect_clicked(|_| {
+			Self::display();
+		});
 		Self {
 			number,
-			preview: Button::with_label(
-				&(std::string::String::from("Page ") + &number.to_string()),
-			),
+			preview: button,
 			versions: Vec::new(),
 		}
+	}
+
+	fn display() {
+		println!("Display this page...");
 	}
 }

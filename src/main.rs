@@ -35,9 +35,6 @@ fn application_layout(window: &ApplicationWindow) {
 
 	for tool in tool_items() {
 		horizontal_pack_0.pack_start(&tool.button, false, false, 0);
-		tool.button.connect_clicked(|_| {
-			println!("Use this tool...");
-		});
 	}
 
 	horizontal_pack_1.pack_start(&vertical_pack_1, false, false, 0);
@@ -45,9 +42,6 @@ fn application_layout(window: &ApplicationWindow) {
 
 	for page in pages() {
 		vertical_pack_1.pack_start(&page.preview, false, false, 0);
-		page.preview.connect_clicked(|_| {
-			println!("Go to this page...");
-		});
 	}
 
 	drawing_mechanics(button_2);
