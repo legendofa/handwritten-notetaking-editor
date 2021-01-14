@@ -5,8 +5,10 @@ use gio::prelude::*;
 use glib::*;
 use gtk::prelude::*;
 use gtk::*;
+use std::borrow::BorrowMut;
 use std::boxed::Box as Heap;
 use std::env::args;
+use std::sync::Arc;
 
 fn build_ui(application: &Application) {
 	let window = gtk::ApplicationWindow::new(application);
@@ -23,7 +25,9 @@ fn build_ui(application: &Application) {
 
 fn application_layout(window: &ApplicationWindow) {
 	let menu_bar = menu_bar(&window);
-	let button_2 = DrawingArea::new();
+	let area = DrawingArea::new();
+	area.add_events(EventMask::ALL_EVENTS_MASK);
+	area.add_events(EventMask::ALL_EVENTS_MASK);
 
 	let vertical_pack_0 = Box::new(Orientation::Vertical, 0);
 	let vertical_pack_1 = Box::new(Orientation::Vertical, 0);
@@ -40,13 +44,13 @@ fn application_layout(window: &ApplicationWindow) {
 	}
 
 	horizontal_pack_1.pack_start(&vertical_pack_1, false, false, 0);
-	horizontal_pack_1.pack_start(&button_2, true, true, 0);
+	horizontal_pack_1.pack_start(&area, true, true, 0);
 
 	for page in pages() {
 		vertical_pack_1.pack_start(&page.preview, false, false, 0);
 	}
 
-	drawing_mechanics(button_2);
+	drawing_mechanics(area);
 
 	window.add(&vertical_pack_0);
 }
@@ -113,7 +117,20 @@ fn menu_bar(window: &ApplicationWindow) -> MenuBar {
 }
 
 fn drawing_mechanics(area: DrawingArea) {
-	area.add_events(EventMask::POINTER_MOTION_MASK);
+	area.connect_motion_notify_event(|_, e| {
+		println!("{:?}", e.get_position());
+		Inhibit(false)
+	});
+
+	area.connect_button_press_event(|_, _| {
+		println!("Button pressed...");
+		Inhibit(false)
+	});
+
+	area.connect_button_release_event(|_, _| {
+		println!("Button released...");
+		Inhibit(false)
+	});
 	area.connect_draw(|_, cr| {
 		// paint canvas white
 		cr.set_source_rgb(1.0, 1.0, 1.0);

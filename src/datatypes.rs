@@ -1,5 +1,6 @@
 use gtk::prelude::*;
 use gtk::*;
+use std::borrow::BorrowMut;
 use std::boxed::Box as Heap;
 
 pub trait Function {
