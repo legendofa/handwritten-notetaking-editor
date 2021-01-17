@@ -5,10 +5,11 @@ use gio::prelude::*;
 use glib::*;
 use gtk::prelude::*;
 use gtk::*;
-use std::borrow::BorrowMut;
 use std::boxed::Box as Heap;
 use std::env::args;
-use std::sync::Arc;
+use std::rc::Rc;
+use std::sync::Mutex;
+use std::{thread, time};
 
 fn build_ui(application: &Application) {
 	let window = gtk::ApplicationWindow::new(application);
@@ -117,36 +118,56 @@ fn menu_bar(window: &ApplicationWindow) -> MenuBar {
 }
 
 fn drawing_mechanics(area: DrawingArea) {
-	area.connect_motion_notify_event(|_, e| {
-		println!("{:?}", e.get_position());
-		Inhibit(false)
-	});
+	let positions = Rc::new(Mutex::new(Vec::<(f64, f64)>::new()));
+	let button_press = Rc::new(Mutex::new(false));
 
-	area.connect_button_press_event(|_, _| {
-		println!("Button pressed...");
-		Inhibit(false)
-	});
+	{
+		let positions = Rc::clone(&positions);
+		let button_press = Rc::clone(&button_press);
+		let draw_area = area.clone();
+		area.connect_motion_notify_event(move |_, e| {
+			if *button_press.lock().unwrap() {
+				let positions = &mut positions.lock().unwrap();
+				positions.push(e.get_position());
+			}
+			draw_area.queue_draw();
+			Inhibit(false)
+		});
+	}
 
-	area.connect_button_release_event(|_, _| {
-		println!("Button released...");
-		Inhibit(false)
-	});
-	area.connect_draw(|_, cr| {
-		// paint canvas white
-		cr.set_source_rgb(1.0, 1.0, 1.0);
-		cr.paint();
+	{
+		let button_press = Rc::clone(&button_press);
+		area.connect_button_press_event(move |_, _| {
+			*button_press.lock().unwrap() = true;
+			Inhibit(false)
+		});
+	}
 
-		// draw 100 random black lines
-		cr.set_source_rgb(0.0, 0.0, 0.0);
-		for _i in 0..100 {
-			let x = rand::random::<f64>() * 600.0;
-			let y = rand::random::<f64>() * 600.0;
-			cr.line_to(x, y);
-		}
-		cr.stroke();
+	{
+		let positions = Rc::clone(&positions);
+		let button_press = Rc::clone(&button_press);
+		area.connect_button_release_event(move |_, _| {
+			*button_press.lock().unwrap() = false;
+			println!("{:?}", *positions.lock().unwrap());
+			Inhibit(false)
+		});
+	}
 
-		Inhibit(false)
-	});
+	{
+		let positions = Rc::clone(&positions);
+		area.connect_draw(move |_, cr| {
+			// paint canvas white
+			cr.set_source_rgb(1.0, 1.0, 1.0);
+			cr.paint();
+			// draw 100 random black lines
+			cr.set_source_rgb(0.0, 0.0, 0.0);
+			for point in positions.lock().unwrap().iter() {
+				cr.line_to(point.0, point.1);
+				cr.stroke();
+			}
+			Inhibit(false)
+		});
+	}
 }
 
 fn main() {
