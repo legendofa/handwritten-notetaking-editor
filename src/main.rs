@@ -129,8 +129,8 @@ fn drawing_mechanics(area: DrawingArea) {
 			if *button_press.lock().unwrap() {
 				let positions = &mut positions.lock().unwrap();
 				positions.push(e.get_position());
+				draw_area.queue_draw();
 			}
-			draw_area.queue_draw();
 			Inhibit(false)
 		});
 	}
@@ -148,7 +148,6 @@ fn drawing_mechanics(area: DrawingArea) {
 		let button_press = Rc::clone(&button_press);
 		area.connect_button_release_event(move |_, _| {
 			*button_press.lock().unwrap() = false;
-			println!("{:?}", *positions.lock().unwrap());
 			Inhibit(false)
 		});
 	}
@@ -163,8 +162,8 @@ fn drawing_mechanics(area: DrawingArea) {
 			cr.set_source_rgb(0.0, 0.0, 0.0);
 			for point in positions.lock().unwrap().iter() {
 				cr.line_to(point.0, point.1);
-				cr.stroke();
 			}
+			cr.stroke();
 			Inhibit(false)
 		});
 	}
