@@ -1,6 +1,8 @@
 use gtk::prelude::*;
 use gtk::*;
 use std::boxed::Box as Heap;
+use std::rc::Rc;
+use std::sync::Mutex;
 
 pub trait Function {
 	fn run(&self);
@@ -36,26 +38,17 @@ impl Tool {
 }
 
 pub struct Page {
-	number: i32,
 	pub preview: Button,
-	versions: Vec<Image>,
+	pub lines: Rc<Mutex<Vec<Vec<Drawpoint>>>>,
 }
 
 impl Page {
-	pub fn new(number: i32) -> Self {
-		let button = Button::with_label(&("Page ".to_owned() + &number.to_string()));
-		button.connect_clicked(|_| {
-			Self::display();
-		});
+	pub fn new() -> Self {
+		let button = Button::with_label("Page");
 		Self {
-			number,
 			preview: button,
-			versions: Vec::new(),
+			lines: Rc::new(Mutex::new(Vec::<Vec<Drawpoint>>::new())),
 		}
-	}
-
-	fn display() {
-		println!("Display this page...");
 	}
 }
 
