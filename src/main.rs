@@ -82,26 +82,41 @@ fn drawing_mechanics(area: DrawingArea, pack: &Box, page_pack: &Box) {
 	let drawing_alpha = Scale::with_range(Orientation::Horizontal, 0.01, 1.0, 0.01);
 	pack.pack_start(&drawing_alpha, true, true, 0);
 
-	let pages = vec![Page::new(), Page::new(), Page::new()];
-	for (i, page) in pages.iter().enumerate() {
-		{
-			let current_page = Rc::clone(&current_page);
-			page.preview.connect_clicked(move |_| {
-				*current_page.lock().unwrap() = i;
-			});
-		}
+	let pages = Rc::new(Mutex::new(vec![Page::new(), Page::new()]));
+	for (i, page) in pages.lock().unwrap().iter().enumerate() {
+		page.connect(Rc::clone(&current_page), area.clone(), i);
 		page_pack.pack_start(&page.preview, false, false, 0);
 	}
+	let add_page = Button::with_label("+");
+	{
+		let pages = Rc::clone(&pages);
+		let current_page = Rc::clone(&current_page);
+		let draw_area = area.clone();
+		let draw_page_pack = page_pack.clone();
+		add_page.connect_clicked(move |_| {
+			let page = Page::new();
+			page.connect(
+				Rc::clone(&current_page),
+				draw_area.clone(),
+				pages.lock().unwrap().len(),
+			);
+			let pages = &mut pages.lock().unwrap();
+			draw_page_pack.pack_start(&page.preview, false, false, 0);
+			pages.push(page);
+		});
+	}
+	page_pack.pack_start(&add_page, false, false, 0);
 
-	undo_redo(pack, &area, &pages[*current_page.lock().unwrap()].lines);
+	undo_redo(pack, &area, &pages, &current_page);
 
 	{
-		let lines = Rc::clone(&pages[*current_page.lock().unwrap()].lines);
+		let pages = Rc::clone(&pages);
+		let current_page = Rc::clone(&current_page);
 		let button_press = Rc::clone(&button_press);
 		let draw_area = area.clone();
 		area.connect_motion_notify_event(move |_, e| {
 			if *button_press.lock().unwrap() {
-				let lines = &mut lines.lock().unwrap();
+				let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
 				lines.last_mut().unwrap().push(Drawpoint::new(
 					e.get_position(),
 					drawing_size.get_value(),
@@ -113,11 +128,13 @@ fn drawing_mechanics(area: DrawingArea, pack: &Box, page_pack: &Box) {
 		});
 	}
 	{
-		let lines = Rc::clone(&pages[*current_page.lock().unwrap()].lines);
+		let pages = Rc::clone(&pages);
+		let current_page = Rc::clone(&current_page);
 		let button_press = Rc::clone(&button_press);
 		area.connect_button_press_event(move |_, _| {
+			let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
 			*button_press.lock().unwrap() = true;
-			lines.lock().unwrap().push(Vec::new());
+			lines.push(Vec::new());
 			Inhibit(false)
 		});
 	}
@@ -129,11 +146,13 @@ fn drawing_mechanics(area: DrawingArea, pack: &Box, page_pack: &Box) {
 		});
 	}
 	{
-		let lines = Rc::clone(&pages[*current_page.lock().unwrap()].lines);
+		let pages = Rc::clone(&pages);
+		let current_page = Rc::clone(&current_page);
 		area.connect_draw(move |_, cr| {
+			let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
 			cr.set_source_rgb(1.0, 1.0, 1.0);
 			cr.paint();
-			for stroke in lines.lock().unwrap().iter() {
+			for stroke in lines.iter() {
 				for drawpoint in stroke {
 					cr.set_source_rgba(
 						drawpoint.rgba.0,
@@ -151,15 +170,21 @@ fn drawing_mechanics(area: DrawingArea, pack: &Box, page_pack: &Box) {
 	}
 }
 
-fn undo_redo(pack: &Box, area: &DrawingArea, lines: &Rc<Mutex<Vec<Vec<Drawpoint>>>>) {
+fn undo_redo(
+	pack: &Box,
+	area: &DrawingArea,
+	pages: &Rc<Mutex<Vec<Page>>>,
+	current_page: &Rc<Mutex<usize>>,
+) {
 	let removed_lines = Rc::new(Mutex::new(Vec::<Vec<Drawpoint>>::new()));
 	let undo = Button::with_label("Undo");
 	{
-		let lines = Rc::clone(&lines);
+		let pages = Rc::clone(&pages);
+		let current_page = Rc::clone(&current_page);
 		let removed_lines = Rc::clone(&removed_lines);
 		let draw_area = area.clone();
 		undo.connect_clicked(move |_| {
-			let lines = &mut lines.lock().unwrap();
+			let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
 			let removed_lines = &mut removed_lines.lock().unwrap();
 			if !lines.is_empty() {
 				removed_lines.push(lines.pop().unwrap());
@@ -171,11 +196,12 @@ fn undo_redo(pack: &Box, area: &DrawingArea, lines: &Rc<Mutex<Vec<Vec<Drawpoint>
 
 	let redo = Button::with_label("Redo");
 	{
-		let lines = Rc::clone(&lines);
+		let pages = Rc::clone(&pages);
+		let current_page = Rc::clone(&current_page);
 		let removed_lines = Rc::clone(&removed_lines);
 		let draw_area = area.clone();
 		redo.connect_clicked(move |_| {
-			let lines = &mut lines.lock().unwrap();
+			let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
 			let removed_lines = &mut removed_lines.lock().unwrap();
 			if !removed_lines.is_empty() {
 				lines.push(removed_lines.pop().unwrap());

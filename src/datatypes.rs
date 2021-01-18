@@ -37,9 +37,10 @@ impl Tool {
 	}
 }
 
+#[derive(Clone, Debug)]
 pub struct Page {
 	pub preview: Button,
-	pub lines: Rc<Mutex<Vec<Vec<Drawpoint>>>>,
+	pub lines: Vec<Vec<Drawpoint>>,
 }
 
 impl Page {
@@ -47,12 +48,19 @@ impl Page {
 		let button = Button::with_label("Page");
 		Self {
 			preview: button,
-			lines: Rc::new(Mutex::new(Vec::<Vec<Drawpoint>>::new())),
+			lines: Vec::<Vec<Drawpoint>>::new(),
 		}
+	}
+
+	pub fn connect(&self, current_page: Rc<Mutex<usize>>, draw_area: DrawingArea, number: usize) {
+		self.preview.connect_clicked(move |_| {
+			*current_page.lock().unwrap() = number;
+			draw_area.queue_draw();
+		});
 	}
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct Drawpoint {
 	pub position: (f64, f64),
 	pub line_width: f64,
