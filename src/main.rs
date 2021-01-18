@@ -82,11 +82,10 @@ fn drawing_mechanics(area: DrawingArea, pack: &Box, page_pack: &Box) {
 	let drawing_alpha = Scale::with_range(Orientation::Horizontal, 0.01, 1.0, 0.01);
 	pack.pack_start(&drawing_alpha, true, true, 0);
 
-	let pages = Rc::new(Mutex::new(vec![Page::new(), Page::new()]));
-	for (i, page) in pages.lock().unwrap().iter().enumerate() {
-		page.connect(Rc::clone(&current_page), area.clone(), i);
-		page_pack.pack_start(&page.preview, false, false, 0);
-	}
+	let pages = Rc::new(Mutex::new(vec![
+		Page::new(Rc::clone(&current_page), area.clone(), &page_pack, 0),
+		Page::new(Rc::clone(&current_page), area.clone(), &page_pack, 1),
+	]));
 
 	add_pages(page_pack, &area, &pages, &current_page);
 
@@ -203,14 +202,13 @@ fn add_pages(
 		let pages = Rc::clone(&pages);
 		let current_page = Rc::clone(&current_page);
 		add_page.connect_clicked(clone!(@strong area, @strong page_pack => move |_| {
-			let page = Page::new();
-			page.connect(
+			let page = Page::new(
 				Rc::clone(&current_page),
 				area.clone(),
+				&page_pack,
 				pages.lock().unwrap().len(),
 			);
 			let pages = &mut pages.lock().unwrap();
-			page_pack.pack_start(&page.preview, false, false, 0);
 			println!("{:?}", page_pack.get_children());
 			pages.push(page);
 			page_pack.queue_draw();

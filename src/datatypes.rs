@@ -44,19 +44,22 @@ pub struct Page {
 }
 
 impl Page {
-	pub fn new() -> Self {
+	pub fn new(
+		current_page: Rc<Mutex<usize>>,
+		draw_area: DrawingArea,
+		pack: &Box,
+		number: usize,
+	) -> Self {
 		let button = Button::with_label("Page");
+		button.connect_clicked(move |_| {
+			*current_page.lock().unwrap() = number;
+			draw_area.queue_draw();
+		});
+		pack.pack_start(&button, false, false, 0);
 		Self {
 			preview: button,
 			lines: Vec::<Vec<Drawpoint>>::new(),
 		}
-	}
-
-	pub fn connect(&self, current_page: Rc<Mutex<usize>>, draw_area: DrawingArea, number: usize) {
-		self.preview.connect_clicked(move |_| {
-			*current_page.lock().unwrap() = number;
-			draw_area.queue_draw();
-		});
 	}
 }
 
