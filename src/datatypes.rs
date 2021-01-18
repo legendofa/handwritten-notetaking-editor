@@ -1,6 +1,5 @@
 use gtk::prelude::*;
 use gtk::*;
-use std::borrow::BorrowMut;
 use std::boxed::Box as Heap;
 
 pub trait Function {
@@ -57,5 +56,21 @@ impl Page {
 
 	fn display() {
 		println!("Display this page...");
+	}
+}
+
+pub struct Drawpoint {
+	pub position: (f64, f64),
+	pub line_width: f64,
+	pub rgba: (f64, f64, f64, f64),
+}
+
+impl Drawpoint {
+	pub fn new(position: (f64, f64), line_width: f64, rgba: (f64, f64, f64, f64)) -> Self {
+		Self {
+			position,
+			line_width,
+			rgba,
+		}
 	}
 }

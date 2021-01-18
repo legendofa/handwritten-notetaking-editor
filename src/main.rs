@@ -9,7 +9,6 @@ use std::boxed::Box as Heap;
 use std::env::args;
 use std::rc::Rc;
 use std::sync::Mutex;
-use std::{thread, time};
 
 fn build_ui(application: &Application) {
 	let window = gtk::ApplicationWindow::new(application);
@@ -40,9 +39,7 @@ fn application_layout(window: &ApplicationWindow) {
 	vertical_pack_0.pack_start(&horizontal_pack_0, false, false, 0);
 	vertical_pack_0.pack_start(&horizontal_pack_1, true, true, 0);
 
-	for tool in tool_items() {
-		horizontal_pack_0.pack_start(&tool.button, false, false, 0);
-	}
+	pack_tools(&horizontal_pack_0);
 
 	horizontal_pack_1.pack_start(&vertical_pack_1, false, false, 0);
 	horizontal_pack_1.pack_start(&area, true, true, 0);
@@ -66,29 +63,9 @@ fn pages() -> Vec<Page> {
 	]
 }
 
-fn tool_items() -> Vec<Tool> {
-	vec![
-		Tool::new(
-			Some("Undo"),
-			None,
-			Heap::new(Messenger::new("Undo an action...")),
-		),
-		Tool::new(
-			Some("Redo"),
-			None,
-			Heap::new(Messenger::new("Redo an action...")),
-		),
-		Tool::new(
-			Some("Paintbrush"),
-			None,
-			Heap::new(Messenger::new("Use the Paintbrush...")),
-		),
-		Tool::new(
-			Some("Eraser"),
-			None,
-			Heap::new(Messenger::new("Use the eraser...")),
-		),
-	]
+fn pack_tools(pack: &Box) {
+	let scale = Scale::with_range(Orientation::Horizontal, 1.0, 100.0, 1.0);
+	pack.pack_start(&scale, false, false, 0);
 }
 
 fn menu_bar(window: &ApplicationWindow) -> MenuBar {
@@ -118,17 +95,21 @@ fn menu_bar(window: &ApplicationWindow) -> MenuBar {
 }
 
 fn drawing_mechanics(area: DrawingArea) {
-	let positions = Rc::new(Mutex::new(Vec::<(f64, f64)>::new()));
+	let lines = Rc::new(Mutex::new(Vec::<Vec<Drawpoint>>::new()));
 	let button_press = Rc::new(Mutex::new(false));
 
 	{
-		let positions = Rc::clone(&positions);
+		let lines = Rc::clone(&lines);
 		let button_press = Rc::clone(&button_press);
 		let draw_area = area.clone();
 		area.connect_motion_notify_event(move |_, e| {
 			if *button_press.lock().unwrap() {
-				let positions = &mut positions.lock().unwrap();
-				positions.push(e.get_position());
+				let lines = &mut lines.lock().unwrap();
+				lines.last_mut().unwrap().push(Drawpoint::new(
+					e.get_position(),
+					5.0,
+					(0.0, 0.0, 0.0, 1.0),
+				));
 				draw_area.queue_draw();
 			}
 			Inhibit(false)
@@ -136,15 +117,16 @@ fn drawing_mechanics(area: DrawingArea) {
 	}
 
 	{
+		let lines = Rc::clone(&lines);
 		let button_press = Rc::clone(&button_press);
 		area.connect_button_press_event(move |_, _| {
 			*button_press.lock().unwrap() = true;
+			lines.lock().unwrap().push(Vec::new());
 			Inhibit(false)
 		});
 	}
 
 	{
-		let positions = Rc::clone(&positions);
 		let button_press = Rc::clone(&button_press);
 		area.connect_button_release_event(move |_, _| {
 			*button_press.lock().unwrap() = false;
@@ -153,17 +135,23 @@ fn drawing_mechanics(area: DrawingArea) {
 	}
 
 	{
-		let positions = Rc::clone(&positions);
+		let lines = Rc::clone(&lines);
 		area.connect_draw(move |_, cr| {
-			// paint canvas white
 			cr.set_source_rgb(1.0, 1.0, 1.0);
 			cr.paint();
-			// draw 100 random black lines
-			cr.set_source_rgb(0.0, 0.0, 0.0);
-			for point in positions.lock().unwrap().iter() {
-				cr.line_to(point.0, point.1);
+			for stroke in lines.lock().unwrap().iter() {
+				for drawpoint in stroke {
+					cr.set_source_rgba(
+						drawpoint.rgba.0,
+						drawpoint.rgba.1,
+						drawpoint.rgba.2,
+						drawpoint.rgba.3,
+					);
+					cr.set_line_width(drawpoint.line_width);
+					cr.line_to(drawpoint.position.0, drawpoint.position.1);
+				}
+				cr.stroke();
 			}
-			cr.stroke();
 			Inhibit(false)
 		});
 	}
