@@ -53,7 +53,7 @@ fn menu_bar(window: &ApplicationWindow) -> MenuBar {
 	let open_file = MenuItem::new();
 	open_file.add(&Label::new(Some("Open File")));
 
-	open_file.connect_activate(clone!(@weak window => move |_| {
+	open_file.connect_activate(clone!(@strong window => move |_| {
 		println!("File should be openend here...");
 	}));
 
@@ -87,25 +87,8 @@ fn drawing_mechanics(area: DrawingArea, pack: &Box, page_pack: &Box) {
 		page.connect(Rc::clone(&current_page), area.clone(), i);
 		page_pack.pack_start(&page.preview, false, false, 0);
 	}
-	let add_page = Button::with_label("+");
-	{
-		let pages = Rc::clone(&pages);
-		let current_page = Rc::clone(&current_page);
-		let draw_area = area.clone();
-		let draw_page_pack = page_pack.clone();
-		add_page.connect_clicked(move |_| {
-			let page = Page::new();
-			page.connect(
-				Rc::clone(&current_page),
-				draw_area.clone(),
-				pages.lock().unwrap().len(),
-			);
-			let pages = &mut pages.lock().unwrap();
-			draw_page_pack.pack_start(&page.preview, false, false, 0);
-			pages.push(page);
-		});
-	}
-	page_pack.pack_start(&add_page, false, false, 0);
+
+	add_pages(page_pack, &area, &pages, &current_page);
 
 	undo_redo(pack, &area, &pages, &current_page);
 
@@ -113,8 +96,7 @@ fn drawing_mechanics(area: DrawingArea, pack: &Box, page_pack: &Box) {
 		let pages = Rc::clone(&pages);
 		let current_page = Rc::clone(&current_page);
 		let button_press = Rc::clone(&button_press);
-		let draw_area = area.clone();
-		area.connect_motion_notify_event(move |_, e| {
+		area.connect_motion_notify_event(clone!(@strong area => move |_, e| {
 			if *button_press.lock().unwrap() {
 				let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
 				lines.last_mut().unwrap().push(Drawpoint::new(
@@ -122,10 +104,10 @@ fn drawing_mechanics(area: DrawingArea, pack: &Box, page_pack: &Box) {
 					drawing_size.get_value(),
 					(0.0, 0.0, 0.0, drawing_alpha.get_value()),
 				));
-				draw_area.queue_draw();
+				area.queue_draw();
 			}
 			Inhibit(false)
-		});
+		}));
 	}
 	{
 		let pages = Rc::clone(&pages);
@@ -182,15 +164,14 @@ fn undo_redo(
 		let pages = Rc::clone(&pages);
 		let current_page = Rc::clone(&current_page);
 		let removed_lines = Rc::clone(&removed_lines);
-		let draw_area = area.clone();
-		undo.connect_clicked(move |_| {
+		undo.connect_clicked(clone!(@strong area => move |_| {
 			let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
 			let removed_lines = &mut removed_lines.lock().unwrap();
 			if !lines.is_empty() {
 				removed_lines.push(lines.pop().unwrap());
-				draw_area.queue_draw();
+				area.queue_draw();
 			}
-		});
+		}));
 	}
 	pack.pack_start(&undo, false, false, 0);
 
@@ -199,17 +180,43 @@ fn undo_redo(
 		let pages = Rc::clone(&pages);
 		let current_page = Rc::clone(&current_page);
 		let removed_lines = Rc::clone(&removed_lines);
-		let draw_area = area.clone();
-		redo.connect_clicked(move |_| {
+		redo.connect_clicked(clone!(@strong area => move |_| {
 			let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
 			let removed_lines = &mut removed_lines.lock().unwrap();
 			if !removed_lines.is_empty() {
 				lines.push(removed_lines.pop().unwrap());
-				draw_area.queue_draw();
+				area.queue_draw();
 			}
-		});
+		}));
 	}
 	pack.pack_start(&redo, false, false, 0);
+}
+
+fn add_pages(
+	page_pack: &Box,
+	area: &DrawingArea,
+	pages: &Rc<Mutex<Vec<Page>>>,
+	current_page: &Rc<Mutex<usize>>,
+) {
+	let add_page = Button::with_label("+");
+	{
+		let pages = Rc::clone(&pages);
+		let current_page = Rc::clone(&current_page);
+		add_page.connect_clicked(clone!(@strong area, @strong page_pack => move |_| {
+			let page = Page::new();
+			page.connect(
+				Rc::clone(&current_page),
+				area.clone(),
+				pages.lock().unwrap().len(),
+			);
+			let pages = &mut pages.lock().unwrap();
+			page_pack.pack_start(&page.preview, false, false, 0);
+			println!("{:?}", page_pack.get_children());
+			pages.push(page);
+			page_pack.queue_draw();
+		}));
+	}
+	page_pack.pack_start(&add_page, false, false, 0);
 }
 
 fn main() {
