@@ -59,6 +59,7 @@ impl Page {
 	}
 }
 
+#[derive(Copy, Clone, Debug)]
 pub struct Drawpoint {
 	pub position: (f64, f64),
 	pub line_width: f64,

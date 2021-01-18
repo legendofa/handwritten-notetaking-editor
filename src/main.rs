@@ -27,7 +27,6 @@ fn application_layout(window: &ApplicationWindow) {
 	let menu_bar = menu_bar(&window);
 	let area = DrawingArea::new();
 	area.add_events(EventMask::ALL_EVENTS_MASK);
-	area.add_events(EventMask::ALL_EVENTS_MASK);
 
 	let vertical_pack_0 = Box::new(Orientation::Vertical, 0);
 	let vertical_pack_1 = Box::new(Orientation::Vertical, 0);
@@ -39,8 +38,6 @@ fn application_layout(window: &ApplicationWindow) {
 	vertical_pack_0.pack_start(&horizontal_pack_0, false, false, 0);
 	vertical_pack_0.pack_start(&horizontal_pack_1, true, true, 0);
 
-	pack_tools(&horizontal_pack_0);
-
 	horizontal_pack_1.pack_start(&vertical_pack_1, false, false, 0);
 	horizontal_pack_1.pack_start(&area, true, true, 0);
 
@@ -48,7 +45,7 @@ fn application_layout(window: &ApplicationWindow) {
 		vertical_pack_1.pack_start(&page.preview, false, false, 0);
 	}
 
-	drawing_mechanics(area);
+	drawing_mechanics(area, &horizontal_pack_0);
 
 	window.add(&vertical_pack_0);
 }
@@ -61,11 +58,6 @@ fn pages() -> Vec<Page> {
 		Page::new(4),
 		Page::new(5),
 	]
-}
-
-fn pack_tools(pack: &Box) {
-	let scale = Scale::with_range(Orientation::Horizontal, 1.0, 100.0, 1.0);
-	pack.pack_start(&scale, false, false, 0);
 }
 
 fn menu_bar(window: &ApplicationWindow) -> MenuBar {
@@ -94,9 +86,48 @@ fn menu_bar(window: &ApplicationWindow) -> MenuBar {
 	menu_bar
 }
 
-fn drawing_mechanics(area: DrawingArea) {
+fn drawing_mechanics(area: DrawingArea, pack: &Box) {
 	let lines = Rc::new(Mutex::new(Vec::<Vec<Drawpoint>>::new()));
+	let removed_lines = Rc::new(Mutex::new(Vec::<Vec<Drawpoint>>::new()));
+
 	let button_press = Rc::new(Mutex::new(false));
+
+	let undo = Button::with_label("Undo");
+	{
+		let lines = Rc::clone(&lines);
+		let removed_lines = Rc::clone(&removed_lines);
+		let draw_area = area.clone();
+		undo.connect_clicked(move |_| {
+			let lines = &mut lines.lock().unwrap();
+			let removed_lines = &mut removed_lines.lock().unwrap();
+			if !lines.is_empty() {
+				removed_lines.push(lines.pop().unwrap());
+				draw_area.queue_draw();
+			}
+		});
+	}
+	pack.pack_start(&undo, false, false, 0);
+
+	let redo = Button::with_label("Redo");
+	{
+		let lines = Rc::clone(&lines);
+		let removed_lines = Rc::clone(&removed_lines);
+		let draw_area = area.clone();
+		redo.connect_clicked(move |_| {
+			let lines = &mut lines.lock().unwrap();
+			let removed_lines = &mut removed_lines.lock().unwrap();
+			if !removed_lines.is_empty() {
+				lines.push(removed_lines.pop().unwrap());
+				draw_area.queue_draw();
+			}
+		});
+	}
+	pack.pack_start(&redo, false, false, 0);
+
+	let drawing_size = Scale::with_range(Orientation::Horizontal, 0.5, 50.0, 0.5);
+	pack.pack_start(&drawing_size, true, true, 0);
+	let drawing_alpha = Scale::with_range(Orientation::Horizontal, 0.01, 1.0, 0.01);
+	pack.pack_start(&drawing_alpha, true, true, 0);
 
 	{
 		let lines = Rc::clone(&lines);
@@ -107,8 +138,8 @@ fn drawing_mechanics(area: DrawingArea) {
 				let lines = &mut lines.lock().unwrap();
 				lines.last_mut().unwrap().push(Drawpoint::new(
 					e.get_position(),
-					5.0,
-					(0.0, 0.0, 0.0, 1.0),
+					drawing_size.get_value(),
+					(0.0, 0.0, 0.0, drawing_alpha.get_value()),
 				));
 				draw_area.queue_draw();
 			}
