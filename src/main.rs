@@ -77,11 +77,6 @@ fn drawing_mechanics(area: DrawingArea, pack: &Box, page_pack: &Box) {
 
 	let button_press = Rc::new(Mutex::new(false));
 
-	let drawing_size = Scale::with_range(Orientation::Horizontal, 0.5, 50.0, 0.5);
-	pack.pack_start(&drawing_size, true, true, 0);
-	let drawing_alpha = Scale::with_range(Orientation::Horizontal, 0.01, 1.0, 0.01);
-	pack.pack_start(&drawing_alpha, true, true, 0);
-
 	let pages = Rc::new(Mutex::new(vec![
 		Page::new(Rc::clone(&current_page), area.clone(), &page_pack, 0),
 		Page::new(Rc::clone(&current_page), area.clone(), &page_pack, 1),
@@ -91,23 +86,8 @@ fn drawing_mechanics(area: DrawingArea, pack: &Box, page_pack: &Box) {
 
 	undo_redo(pack, &area, &pages, &current_page);
 
-	{
-		let pages = Rc::clone(&pages);
-		let current_page = Rc::clone(&current_page);
-		let button_press = Rc::clone(&button_press);
-		area.connect_motion_notify_event(clone!(@strong area => move |_, e| {
-			if *button_press.lock().unwrap() {
-				let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
-				lines.last_mut().unwrap().push(Drawpoint::new(
-					e.get_position(),
-					drawing_size.get_value(),
-					(0.0, 0.0, 0.0, drawing_alpha.get_value()),
-				));
-				area.queue_draw();
-			}
-			Inhibit(false)
-		}));
-	}
+	manage_drawing_modes(pack, &area, &pages, &current_page, &button_press);
+
 	{
 		let pages = Rc::clone(&pages);
 		let current_page = Rc::clone(&current_page);
@@ -215,6 +195,54 @@ fn add_pages(
 		}));
 	}
 	page_pack.pack_start(&add_page, false, false, 0);
+}
+
+fn manage_drawing_modes(
+	pack: &Box,
+	area: &DrawingArea,
+	pages: &Rc<Mutex<Vec<Page>>>,
+	current_page: &Rc<Mutex<usize>>,
+	button_press: &Rc<Mutex<bool>>,
+) {
+	let size_tool = Scale::with_range(Orientation::Horizontal, 0.5, 50.0, 0.5);
+	pack.pack_start(&size_tool, true, true, 0);
+	let drawing_alpha = Scale::with_range(Orientation::Horizontal, 0.01, 1.0, 0.01);
+	pack.pack_start(&drawing_alpha, true, true, 0);
+
+	let current_draw_tool = Rc::new(Mutex::new(CurrentDrawTool::Pencil));
+	let pencil = Rc::new(Mutex::new(Heap::new(Pencil::new(
+		Rc::clone(&current_draw_tool),
+		pack,
+	))));
+	let eraser = Rc::new(Mutex::new(Heap::new(Eraser::new(
+		Rc::clone(&current_draw_tool),
+		pack,
+	))));
+	let line_eraser = Rc::new(Mutex::new(Heap::new(LineEraser::new(
+		Rc::clone(&current_draw_tool),
+		pack,
+	))));
+	let selection = Rc::new(Mutex::new(Heap::new(Selection::new(
+		Rc::clone(&current_draw_tool),
+		pack,
+	))));
+
+	let pages = Rc::clone(&pages);
+	let current_page = Rc::clone(&current_page);
+	let button_press = Rc::clone(&button_press);
+	area.connect_motion_notify_event(clone!(@strong area => move |_, e| {
+		if *button_press.lock().unwrap() {
+			let active_draw_tool: Heap<dyn DrawTool> = match *current_draw_tool.lock().unwrap() {
+				CurrentDrawTool::Pencil => Heap::new(*Rc::clone(&pencil).lock().unwrap().clone()),
+				CurrentDrawTool::Eraser => Heap::new(*Rc::clone(&eraser).lock().unwrap().clone()),
+				CurrentDrawTool::LineEraser => Heap::new(*Rc::clone(&line_eraser).lock().unwrap().clone()),
+				CurrentDrawTool::Selection => Heap::new(*Rc::clone(&selection).lock().unwrap().clone()),
+			};
+			active_draw_tool.manipulate(Rc::clone(&pages), Rc::clone(&current_page), e.get_position(), size_tool.get_value(), drawing_alpha.get_value());
+			area.queue_draw();
+		}
+		Inhibit(false)
+	}));
 }
 
 fn main() {

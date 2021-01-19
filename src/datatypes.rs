@@ -8,32 +8,168 @@ pub trait Function {
 	fn run(&self);
 }
 
-pub struct Messenger<'a> {
-	message: &'a str,
+pub enum CurrentDrawTool {
+	Pencil,
+	Eraser,
+	LineEraser,
+	Selection,
 }
 
-impl Messenger<'_> {
-	pub fn new(message: &'static str) -> Self {
-		Self { message }
+pub trait DrawTool {
+	fn manipulate(
+		&self,
+		pages: Rc<Mutex<Vec<Page>>>,
+		current_page: Rc<Mutex<usize>>,
+		position: (f64, f64),
+		size: f64,
+		alpha: f64,
+	);
+}
+
+#[derive(Clone, Debug)]
+pub struct Pencil {}
+
+impl Pencil {
+	pub fn new(current_draw_tool: Rc<Mutex<CurrentDrawTool>>, pack: &Box) -> Self {
+		let button = Button::with_label("Pen");
+		let draw_tool = Self {};
+		button.connect_clicked(move |_| {
+			*current_draw_tool.lock().unwrap() = CurrentDrawTool::Pencil;
+		});
+		pack.pack_start(&button, false, false, 0);
+		draw_tool
 	}
 }
 
-impl Function for Messenger<'_> {
-	fn run(&self) {
-		println!("{}", self.message);
+impl DrawTool for Pencil {
+	fn manipulate(
+		&self,
+		pages: Rc<Mutex<Vec<Page>>>,
+		current_page: Rc<Mutex<usize>>,
+		position: (f64, f64),
+		size: f64,
+		alpha: f64,
+	) {
+		let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
+		lines
+			.last_mut()
+			.unwrap()
+			.push(Drawpoint::new(position, size, (0.0, 0.0, 0.0, alpha)));
 	}
 }
 
-pub struct Tool {
-	icon: Option<Image>,
-	pub button: Button,
+#[derive(Clone, Debug)]
+pub struct Eraser {}
+
+impl Eraser {
+	pub fn new(current_draw_tool: Rc<Mutex<CurrentDrawTool>>, pack: &Box) -> Self {
+		let button = Button::with_label("Eraser");
+		let draw_tool = Self {};
+		button.connect_clicked(move |_| {
+			*current_draw_tool.lock().unwrap() = CurrentDrawTool::Eraser;
+		});
+		pack.pack_start(&button, false, false, 0);
+		draw_tool
+	}
 }
 
-impl Tool {
-	pub fn new(name: Option<&str>, icon: Option<Image>, function: Heap<dyn Function>) -> Self {
-		let button = Button::with_label(name.unwrap_or("Tool"));
-		button.connect_clicked(move |_| function.run());
-		Self { icon, button }
+impl DrawTool for Eraser {
+	fn manipulate(
+		&self,
+		pages: Rc<Mutex<Vec<Page>>>,
+		current_page: Rc<Mutex<usize>>,
+		position: (f64, f64),
+		size: f64,
+		alpha: f64,
+	) {
+		let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
+		let mut removal_queue: Vec<(usize, usize)> = Vec::new();
+		for (i, line) in lines.iter().enumerate() {
+			for (j, point) in line.iter().enumerate() {
+				let distance = ((point.position.0 - position.0).powf(2.0)
+					+ (point.position.1 - position.1).powf(2.0))
+				.sqrt();
+				if distance < size {
+					removal_queue.push((i, j));
+				};
+			}
+		}
+		let mut new_element_count = 0;
+		for indices in removal_queue {
+			let i = indices.0 + new_element_count;
+			let j = indices.1;
+			let line = lines[i].split_off(j);
+			lines.insert(i + 1, line);
+			new_element_count += 1;
+		}
+	}
+}
+
+#[derive(Clone, Debug)]
+pub struct LineEraser {}
+
+impl LineEraser {
+	pub fn new(current_draw_tool: Rc<Mutex<CurrentDrawTool>>, pack: &Box) -> Self {
+		let button = Button::with_label("Line Eraser");
+		let draw_tool = Self {};
+		button.connect_clicked(move |_| {
+			*current_draw_tool.lock().unwrap() = CurrentDrawTool::LineEraser;
+		});
+		pack.pack_start(&button, false, false, 0);
+		draw_tool
+	}
+}
+
+impl DrawTool for LineEraser {
+	fn manipulate(
+		&self,
+		pages: Rc<Mutex<Vec<Page>>>,
+		current_page: Rc<Mutex<usize>>,
+		position: (f64, f64),
+		size: f64,
+		alpha: f64,
+	) {
+		let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
+		lines.retain(|line| {
+			for point in line {
+				let distance = ((point.position.0 - position.0).powf(2.0)
+					+ (point.position.1 - position.1).powf(2.0))
+				.sqrt();
+				if distance < size {
+					return false;
+				};
+			}
+			true
+		})
+	}
+}
+
+#[derive(Clone, Debug)]
+pub struct Selection {}
+
+impl Selection {
+	pub fn new(current_draw_tool: Rc<Mutex<CurrentDrawTool>>, pack: &Box) -> Self {
+		let button = Button::with_label("Selection");
+		let draw_tool = Self {};
+		button.connect_clicked(move |_| {
+			*current_draw_tool.lock().unwrap() = CurrentDrawTool::Selection;
+		});
+		pack.pack_start(&button, false, false, 0);
+		draw_tool
+	}
+}
+
+impl DrawTool for Selection {
+	fn manipulate(
+		&self,
+		pages: Rc<Mutex<Vec<Page>>>,
+		current_page: Rc<Mutex<usize>>,
+		position: (f64, f64),
+		size: f64,
+		alpha: f64,
+	) {
+		let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
+		lines.clear();
 	}
 }
 
@@ -46,14 +182,14 @@ pub struct Page {
 impl Page {
 	pub fn new(
 		current_page: Rc<Mutex<usize>>,
-		draw_area: DrawingArea,
+		area: DrawingArea,
 		pack: &Box,
 		number: usize,
 	) -> Self {
 		let button = Button::with_label("Page");
 		button.connect_clicked(move |_| {
 			*current_page.lock().unwrap() = number;
-			draw_area.queue_draw();
+			area.queue_draw();
 		});
 		pack.pack_start(&button, false, false, 0);
 		Self {
