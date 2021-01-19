@@ -12,6 +12,7 @@ pub enum CurrentDrawTool {
 	Pencil,
 	Eraser,
 	LineEraser,
+	LineTool,
 	Selection,
 }
 
@@ -145,6 +146,43 @@ impl DrawTool for LineEraser {
 			}
 			true
 		})
+	}
+}
+
+#[derive(Clone, Debug)]
+pub struct LineTool {}
+
+impl LineTool {
+	pub fn new(current_draw_tool: Rc<Mutex<CurrentDrawTool>>, pack: &Box) -> Self {
+		let button = Button::with_label("Line Tool");
+		let draw_tool = Self {};
+		button.connect_clicked(move |_| {
+			*current_draw_tool.lock().unwrap() = CurrentDrawTool::LineTool;
+		});
+		pack.pack_start(&button, false, false, 0);
+		draw_tool
+	}
+}
+
+impl DrawTool for LineTool {
+	fn manipulate(
+		&self,
+		pages: Rc<Mutex<Vec<Page>>>,
+		current_page: Rc<Mutex<usize>>,
+		position: (f64, f64),
+		size: f64,
+		alpha: f64,
+	) {
+		let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
+		let starting_point = if lines.last().unwrap().is_empty() {
+			Drawpoint::new(position, size, (0.0, 0.0, 0.0, alpha))
+		} else {
+			lines.last().unwrap()[0].clone()
+		};
+		let lines = lines.last_mut().unwrap();
+		lines.clear();
+		lines.push(starting_point);
+		lines.push(Drawpoint::new(position, size, (0.0, 0.0, 0.0, alpha)));
 	}
 }
 

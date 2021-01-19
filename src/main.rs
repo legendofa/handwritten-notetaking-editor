@@ -222,6 +222,10 @@ fn manage_drawing_modes(
 		Rc::clone(&current_draw_tool),
 		pack,
 	))));
+	let line = Rc::new(Mutex::new(Heap::new(LineTool::new(
+		Rc::clone(&current_draw_tool),
+		pack,
+	))));
 	let selection = Rc::new(Mutex::new(Heap::new(Selection::new(
 		Rc::clone(&current_draw_tool),
 		pack,
@@ -236,6 +240,7 @@ fn manage_drawing_modes(
 				CurrentDrawTool::Pencil => Heap::new(*Rc::clone(&pencil).lock().unwrap().clone()),
 				CurrentDrawTool::Eraser => Heap::new(*Rc::clone(&eraser).lock().unwrap().clone()),
 				CurrentDrawTool::LineEraser => Heap::new(*Rc::clone(&line_eraser).lock().unwrap().clone()),
+				CurrentDrawTool::LineTool => Heap::new(*Rc::clone(&line).lock().unwrap().clone()),
 				CurrentDrawTool::Selection => Heap::new(*Rc::clone(&selection).lock().unwrap().clone()),
 			};
 			active_draw_tool.manipulate(Rc::clone(&pages), Rc::clone(&current_page), e.get_position(), size_tool.get_value(), drawing_alpha.get_value());
