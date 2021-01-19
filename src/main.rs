@@ -7,6 +7,7 @@ use gtk::prelude::*;
 use gtk::*;
 use std::boxed::Box as Heap;
 use std::env::args;
+use std::f64::consts::PI;
 use std::rc::Rc;
 use std::sync::Mutex;
 
@@ -86,7 +87,17 @@ fn drawing_mechanics(area: DrawingArea, pack: &Box, page_pack: &Box) {
 
 	undo_redo(pack, &area, &pages, &current_page);
 
-	manage_drawing_modes(pack, &area, &pages, &current_page, &button_press);
+	let size_tool = Scale::with_range(Orientation::Horizontal, 0.5, 50.0, 0.5);
+	pack.pack_start(&size_tool, true, true, 0);
+
+	manage_drawing_modes(
+		pack,
+		&area,
+		&pages,
+		&current_page,
+		&button_press,
+		&size_tool,
+	);
 
 	{
 		let pages = Rc::clone(&pages);
@@ -129,6 +140,8 @@ fn drawing_mechanics(area: DrawingArea, pack: &Box, page_pack: &Box) {
 			Inhibit(false)
 		});
 	}
+
+	position_pointer(&area, &size_tool);
 }
 
 fn undo_redo(
@@ -203,11 +216,12 @@ fn manage_drawing_modes(
 	pages: &Rc<Mutex<Vec<Page>>>,
 	current_page: &Rc<Mutex<usize>>,
 	button_press: &Rc<Mutex<bool>>,
+	size_tool: &Scale,
 ) {
-	let size_tool = Scale::with_range(Orientation::Horizontal, 0.5, 50.0, 0.5);
-	pack.pack_start(&size_tool, true, true, 0);
 	let drawing_alpha = Scale::with_range(Orientation::Horizontal, 0.01, 1.0, 0.01);
 	pack.pack_start(&drawing_alpha, true, true, 0);
+
+	position_pointer(area, &size_tool);
 
 	let current_draw_tool = Rc::new(Mutex::new(CurrentDrawTool::Pencil));
 	let pencil = Rc::new(Mutex::new(Heap::new(Pencil::new(
@@ -234,7 +248,7 @@ fn manage_drawing_modes(
 	let pages = Rc::clone(&pages);
 	let current_page = Rc::clone(&current_page);
 	let button_press = Rc::clone(&button_press);
-	area.connect_motion_notify_event(clone!(@strong area => move |_, e| {
+	area.connect_motion_notify_event(clone!(@strong area, @strong size_tool => move |_, e| {
 		if *button_press.lock().unwrap() {
 			let active_draw_tool: Heap<dyn DrawTool> = match *current_draw_tool.lock().unwrap() {
 				CurrentDrawTool::Pencil => Heap::new(*Rc::clone(&pencil).lock().unwrap().clone()),
@@ -244,10 +258,42 @@ fn manage_drawing_modes(
 				CurrentDrawTool::Selection => Heap::new(*Rc::clone(&selection).lock().unwrap().clone()),
 			};
 			active_draw_tool.manipulate(Rc::clone(&pages), Rc::clone(&current_page), e.get_position(), size_tool.get_value(), drawing_alpha.get_value());
-			area.queue_draw();
 		}
+		area.queue_draw();
 		Inhibit(false)
 	}));
+}
+
+fn position_pointer(area: &DrawingArea, size_tool: &Scale) {
+	let cursor_position = Rc::new(Mutex::new(Some((0.0, 0.0))));
+
+	{
+		let cursor_position = Rc::clone(&cursor_position);
+		area.connect_motion_notify_event(clone!(@strong area => move |_, e| {
+			*cursor_position.lock().unwrap() = Some(e.get_position());
+			Inhibit(false)
+		}));
+	}
+	{
+		let cursor_position = Rc::clone(&cursor_position);
+		area.connect_leave_notify_event(move |_, _| {
+			*cursor_position.lock().unwrap() = None;
+			Inhibit(false)
+		});
+	}
+	{
+		let cursor_position = Rc::clone(&cursor_position);
+		area.connect_draw(clone!(@strong size_tool => move |_, cr| {
+			let cursor_position = *cursor_position.lock().unwrap();
+			if cursor_position.is_some() {
+				cr.set_source_rgba(0.0, 0.0, 0.0, 0.5);
+				cr.set_line_width(5.0);
+				cr.arc(cursor_position.unwrap().0, cursor_position.unwrap().1, size_tool.get_value() / 2.0, 0.0, PI * 2.0);
+				cr.stroke();
+			}
+			Inhibit(false)
+		}));
+	}
 }
 
 fn main() {
