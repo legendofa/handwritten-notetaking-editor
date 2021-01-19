@@ -98,9 +98,13 @@ impl DrawTool for Eraser {
 		for indices in removal_queue {
 			let i = indices.0 + new_element_count;
 			let j = indices.1;
-			let line = lines[i].split_off(j);
-			lines.insert(i + 1, line);
-			new_element_count += 1;
+			if i < lines.len() {
+				if j < lines[i].len() {
+					let line = lines[i].split_off(j);
+					lines.insert(i + 1, line);
+					new_element_count += 1;
+				}
+			}
 		}
 	}
 }
