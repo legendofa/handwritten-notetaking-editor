@@ -180,9 +180,23 @@ impl DrawTool for LineTool {
 			lines.last().unwrap()[0].clone()
 		};
 		let lines = lines.last_mut().unwrap();
+		let distance = (starting_point.position.0 - position.0).powf(2.0)
+			+ (starting_point.position.1 - position.1).powf(2.0);
+		let point_count = distance / 10000.0;
+		let vector = (
+			(position.0 - starting_point.position.0) / point_count,
+			(position.1 - starting_point.position.1) / point_count,
+		);
+		println!("{:?}", distance);
 		lines.clear();
-		lines.push(starting_point);
-		lines.push(Drawpoint::new(position, size, (0.0, 0.0, 0.0, alpha)));
+		lines.push(starting_point.clone());
+		for i in 1..point_count as usize {
+			let new_position = (
+				starting_point.position.0 + vector.0 * (i as f64),
+				starting_point.position.1 + vector.1 * (i as f64),
+			);
+			lines.push(Drawpoint::new(new_position, size, (0.0, 0.0, 0.0, alpha)));
+		}
 	}
 }
 
