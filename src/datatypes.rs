@@ -1,5 +1,6 @@
 use gtk::prelude::*;
 use gtk::*;
+use serde::{Deserialize, Serialize};
 use std::boxed::Box as Heap;
 use std::rc::Rc;
 use std::sync::Mutex;
@@ -229,9 +230,8 @@ impl DrawTool for Selection {
 	}
 }
 
-#[derive(Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Page {
-	pub preview: Button,
 	pub lines: Vec<Vec<Drawpoint>>,
 }
 
@@ -249,13 +249,12 @@ impl Page {
 		});
 		pack.pack_start(&button, false, false, 0);
 		Self {
-			preview: button,
 			lines: Vec::<Vec<Drawpoint>>::new(),
 		}
 	}
 }
 
-#[derive(Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Drawpoint {
 	pub position: (f64, f64),
 	pub line_width: f64,

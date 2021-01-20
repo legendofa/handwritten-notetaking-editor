@@ -5,9 +5,12 @@ use gio::prelude::*;
 use glib::*;
 use gtk::prelude::*;
 use gtk::*;
+use serde_json::*;
 use std::boxed::Box as Heap;
 use std::env::args;
 use std::f64::consts::PI;
+use std::fs::File;
+use std::io::{Read, Write};
 use std::rc::Rc;
 use std::sync::Mutex;
 
@@ -85,6 +88,10 @@ fn drawing_mechanics(area: DrawingArea, pack: &Box, page_pack: &Box) {
 
 	add_pages(page_pack, &area, &pages, &current_page);
 
+	save_file(pack, &pages);
+
+	load_file(pack, &pages);
+
 	undo_redo(pack, &area, &pages, &current_page);
 
 	let size_tool = Scale::with_range(Orientation::Horizontal, 0.5, 50.0, 0.5);
@@ -142,6 +149,34 @@ fn drawing_mechanics(area: DrawingArea, pack: &Box, page_pack: &Box) {
 	}
 
 	position_pointer(&area, &size_tool);
+}
+
+fn save_file(pack: &Box, pages: &Rc<Mutex<Vec<Page>>>) {
+	let save = Button::with_label("Save");
+	{
+		let pages = Rc::clone(&pages);
+		save.connect_clicked(move |_| {
+			let pages = pages.lock().unwrap();
+			let serialized = serde_json::to_string(&pages.clone()).unwrap();
+			let mut file = File::create("test.hnote").unwrap();
+			file.write_all(serialized.as_bytes());
+		});
+	}
+	pack.pack_start(&save, false, false, 0);
+}
+
+fn load_file(pack: &Box, pages: &Rc<Mutex<Vec<Page>>>) {
+	let load = Button::with_label("Load");
+	{
+		let pages = Rc::clone(&pages);
+		load.connect_clicked(move |_| {
+			let mut file = File::open("test.hnote").unwrap();
+			let mut serialized = std::string::String::new();
+			file.read_to_string(&mut serialized).unwrap();
+			*pages.lock().unwrap() = serde_json::from_str(&serialized).unwrap();
+		});
+	}
+	pack.pack_start(&load, false, false, 0);
 }
 
 fn undo_redo(
