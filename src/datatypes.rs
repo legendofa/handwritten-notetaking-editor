@@ -241,15 +241,26 @@ impl Page {
 		pack: &Box,
 		number: usize,
 	) -> Self {
+		Self::connect_pack(current_page, area, pack, number);
+		Self {
+			lines: Vec::<Vec<Drawpoint>>::new(),
+		}
+	}
+
+	pub fn connect_pack(
+		current_page: Rc<Mutex<usize>>,
+		area: DrawingArea,
+		pack: &Box,
+		number: usize,
+	) {
 		let button = Button::with_label("Page");
 		button.connect_clicked(move |_| {
 			*current_page.lock().unwrap() = number;
 			area.queue_draw();
 		});
 		pack.pack_start(&button, false, false, 0);
-		Self {
-			lines: Vec::<Vec<Drawpoint>>::new(),
-		}
+		let button_position = pack.get_child_position(&button);
+		pack.set_child_position(&button, button_position - 1);
 	}
 }
 

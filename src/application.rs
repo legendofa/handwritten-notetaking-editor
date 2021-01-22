@@ -123,23 +123,26 @@ impl Application {
 		open_file.add(&Label::new(Some("Open File")));
 
 		let pages = Rc::clone(&self.pages);
-		open_file.connect_activate(clone!(@strong window => move |_| {
-			let file_chooser = gtk::FileChooserDialogBuilder::new()
-				.title("Choose file...")
-				.action(gtk::FileChooserAction::Open)
-				.local_only(false)
-				.transient_for(&window)
-				.modal(true)
-				.build();
-			let pages = Rc::clone(&pages);
-			file_chooser.connect_response(move |file_chooser, response| {
-				if response == gtk::ResponseType::Ok {
-					let filename = file_chooser.get_filename().expect("Couldn't get filename");
-					Self::load_file(&filename, &pages);
-				}
-				file_chooser.close();
-			});
-		}));
+		let current_page = Rc::clone(&self.current_page);
+		open_file.connect_activate(
+			clone!(@strong window, @strong self.application_layout.page_pack as page_pack, @strong self.area as area => move |_| {
+				let file_chooser = gtk::FileChooserDialogBuilder::new()
+					.title("Choose file...")
+					.action(gtk::FileChooserAction::Open)
+					.local_only(false)
+					.transient_for(&window)
+					.modal(true)
+					.build();
+				let pages = Rc::clone(&pages);
+				file_chooser.connect_response(clone!(@strong page_pack => move |file_chooser, response| {
+					if response == gtk::ResponseType::Ok {
+						let filename = file_chooser.get_filename().expect("Couldn't get filename");
+						//Self::load_file(area.clone(), &filename, &pages, &page_pack, &current_page);
+					}
+					file_chooser.close();
+				}));
+			}),
+		);
 
 		let save_file = MenuItem::new();
 		save_file.add(&Label::new(Some("Save File")));
@@ -190,9 +193,12 @@ impl Application {
 		let load = Button::with_label("Load");
 		{
 			let pages = Rc::clone(&self.pages);
-			load.connect_clicked(move |_| {
-				Self::load_file(&Path::new("test.hnote").to_path_buf(), &pages);
-			});
+			let current_page = Rc::clone(&self.current_page);
+			load.connect_clicked(
+				clone!(@strong self.application_layout.page_pack as page_pack, @strong self.area as area => move |_| {
+					Self::load_file(area.clone(), &Path::new("test.hnote").to_path_buf(), &pages, &page_pack, &current_page);
+				}),
+			);
 		}
 		pack.pack_start(&load, false, false, 0);
 
@@ -262,12 +268,26 @@ impl Application {
 		file.write_all(serialized.as_bytes());
 	}
 
-	fn load_file(path_puf: &PathBuf, pages: &Rc<Mutex<Vec<Page>>>) {
+	fn load_file(
+		area: DrawingArea,
+		path_puf: &PathBuf,
+		pages: &Rc<Mutex<Vec<Page>>>,
+		page_pack: &Box,
+		current_page: &Rc<Mutex<usize>>,
+	) {
 		let mut file = File::open(path_puf).expect("Could not open file.");
 		let mut serialized = std::string::String::new();
 		file.read_to_string(&mut serialized)
 			.expect("Could not read to string.");
 		*pages.lock().unwrap() = serde_json::from_str(&serialized).expect("Invalid format.");
+		for button in page_pack.get_children() {
+			page_pack.remove(&button);
+		}
+		let pages = pages.lock().unwrap();
+		for (i, _) in pages.iter().enumerate() {
+			Page::connect_pack(Rc::clone(&current_page), area.clone(), page_pack, i);
+		}
+		page_pack.show_all();
 	}
 
 	fn undo_redo(
@@ -331,7 +351,7 @@ impl Application {
 				);
 				let pages = &mut pages.lock().unwrap();
 				pages.push(page);
-				page_pack.queue_draw();
+				page_pack.show_all();
 			}));
 		}
 		page_pack.pack_start(&add_page, false, false, 0);
