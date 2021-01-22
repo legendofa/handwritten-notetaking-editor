@@ -24,7 +24,7 @@ pub trait DrawTool {
 		current_page: Rc<Mutex<usize>>,
 		position: (f64, f64),
 		size: f64,
-		rgba: (f64, f64, f64, f64),
+		rgba: [f64; 4],
 	);
 }
 
@@ -50,7 +50,7 @@ impl DrawTool for Pencil {
 		current_page: Rc<Mutex<usize>>,
 		position: (f64, f64),
 		size: f64,
-		rgba: (f64, f64, f64, f64),
+		rgba: [f64; 4],
 	) {
 		let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
 		lines
@@ -82,7 +82,7 @@ impl DrawTool for Eraser {
 		current_page: Rc<Mutex<usize>>,
 		position: (f64, f64),
 		size: f64,
-		rgba: (f64, f64, f64, f64),
+		rgba: [f64; 4],
 	) {
 		let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
 		let mut removal_queue: Vec<(usize, usize)> = Vec::new();
@@ -133,7 +133,7 @@ impl DrawTool for LineEraser {
 		current_page: Rc<Mutex<usize>>,
 		position: (f64, f64),
 		size: f64,
-		rgba: (f64, f64, f64, f64),
+		rgba: [f64; 4],
 	) {
 		let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
 		lines.retain(|line| {
@@ -172,7 +172,7 @@ impl DrawTool for LineTool {
 		current_page: Rc<Mutex<usize>>,
 		position: (f64, f64),
 		size: f64,
-		rgba: (f64, f64, f64, f64),
+		rgba: [f64; 4],
 	) {
 		let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
 		let starting_point = if lines.last().unwrap().is_empty() {
@@ -222,7 +222,7 @@ impl DrawTool for Selection {
 		current_page: Rc<Mutex<usize>>,
 		position: (f64, f64),
 		size: f64,
-		rgba: (f64, f64, f64, f64),
+		rgba: [f64; 4],
 	) {
 		let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
 		lines.clear();
@@ -257,11 +257,11 @@ impl Page {
 pub struct Drawpoint {
 	pub position: (f64, f64),
 	pub line_width: f64,
-	pub rgba: (f64, f64, f64, f64),
+	pub rgba: [f64; 4],
 }
 
 impl Drawpoint {
-	pub fn new(position: (f64, f64), line_width: f64, rgba: (f64, f64, f64, f64)) -> Self {
+	pub fn new(position: (f64, f64), line_width: f64, rgba: [f64; 4]) -> Self {
 		Self {
 			position,
 			line_width,

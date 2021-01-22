@@ -238,10 +238,10 @@ impl Application {
 				for stroke in lines.iter() {
 					for drawpoint in stroke {
 						cr.set_source_rgba(
-							drawpoint.rgba.0,
-							drawpoint.rgba.1,
-							drawpoint.rgba.2,
-							drawpoint.rgba.3,
+							drawpoint.rgba[0],
+							drawpoint.rgba[1],
+							drawpoint.rgba[2],
+							drawpoint.rgba[3],
 						);
 						cr.set_line_width(drawpoint.line_width);
 						cr.line_to(drawpoint.position.0, drawpoint.position.1);
@@ -330,7 +330,6 @@ impl Application {
 					pages.lock().unwrap().len(),
 				);
 				let pages = &mut pages.lock().unwrap();
-				println!("{:?}", page_pack.get_children());
 				pages.push(page);
 				page_pack.queue_draw();
 			}));
@@ -347,35 +346,45 @@ impl Application {
 		button_press: &Rc<Mutex<bool>>,
 		size_tool: &Scale,
 	) {
-		let rgba = Rc::new(Mutex::new((0.0, 0.0, 0.0, 0.0)));
+		let rgba = Rc::new(Mutex::new([1.0; 4]));
 		let color_widget = Button::with_label("Colors");
 		{
 			let rgba = Rc::clone(&rgba);
 			color_widget.connect_clicked(clone!(@strong self.window as window => move |_| {
 				let dialog = gtk::Dialog::with_buttons(
-					Some("Color"),
+					Some("Colors"),
 					Some(&window.clone()),
-					gtk::DialogFlags::MODAL,
+					gtk::DialogFlags::DESTROY_WITH_PARENT,
 					&[("Close", ResponseType::Close)],
 				);
 				dialog.set_default_response(ResponseType::Close);
 				dialog.connect_response(|dialog, _| dialog.close());
 
-				let value_scales = [
+				let scales = [
 					Scale::with_range(Orientation::Horizontal, 0.01, 1.0, 0.01),
 					Scale::with_range(Orientation::Horizontal, 0.01, 1.0, 0.01),
 					Scale::with_range(Orientation::Horizontal, 0.01, 1.0, 0.01),
 					Scale::with_range(Orientation::Horizontal, 0.01, 1.0, 0.01),
 				];
 				let content_area = dialog.get_content_area();
-				value_scales.iter().for_each(|i| {
-					i.set_value(1.0);
-					content_area.add(i);
-				});
-				dialog.show_all();
+				let color_preview = Label::new(None);
+				content_area.add(&color_preview);
+				for (i, scale) in scales.iter().enumerate() {
+					scale.set_value(1.0);
+					content_area.add(scale);
+					{
+						let rgba = Rc::clone(&rgba);
+						scale.connect_change_value(clone!(@strong color_preview => move |_, _, v| {
+							let rgba = &mut rgba.lock().unwrap();
+							rgba[i] = v;
+							let rgba = Some(RGBA {red: rgba[0], green: rgba[1], blue: rgba[2], alpha: rgba[3]});
+							color_preview.override_background_color(StateFlags::NORMAL, rgba.as_ref());
+							Inhibit(false)
+						}));
+					}
+				}
 
-				let scale_values: Vec<f64> = value_scales.iter().map(|i| i.get_value()).collect();
-				*rgba.lock().unwrap() = (scale_values[0], scale_values[1], scale_values[2], scale_values[3]);
+				dialog.show_all();
 			}));
 		}
 		pack.pack_start(&color_widget, false, false, 0);
@@ -416,7 +425,8 @@ impl Application {
 						CurrentDrawTool::LineTool => Heap::new(*Rc::clone(&line).lock().unwrap().clone()),
 						CurrentDrawTool::Selection => Heap::new(*Rc::clone(&selection).lock().unwrap().clone()),
 					};
-					active_draw_tool.manipulate(Rc::clone(&pages), Rc::clone(&current_page), e.get_position(), size_tool.get_value(), *rgba.lock().unwrap());
+					let rgba = *rgba.lock().unwrap();
+					active_draw_tool.manipulate(Rc::clone(&pages), Rc::clone(&current_page), e.get_position(), size_tool.get_value(), rgba);
 				}
 				area.queue_draw();
 				Inhibit(false)
