@@ -37,18 +37,17 @@ pub struct Application {
 	pages: Rc<Mutex<Vec<Page>>>,
 	application_layout: ApplicationLayout,
 	area: DrawingArea,
+	window: ApplicationWindow,
 }
 
 impl Application {
-	pub fn new() -> Self {
-		if gtk::init().is_err() {
-			println!("Failed to initialize GTK.");
-		}
+	pub fn new(gtk_application: &gtk::Application) -> Self {
+		let window = gtk::ApplicationWindow::new(gtk_application);
 		let current_page = Rc::new(Mutex::new(0));
 		let application_layout = ApplicationLayout::new();
 		let area = DrawingArea::new();
 		area.add_events(EventMask::ALL_EVENTS_MASK);
-		Self {
+		let mut application = Self {
 			current_page: Rc::clone(&current_page),
 			pages: Rc::new(Mutex::new(vec![
 				Page::new(
@@ -61,20 +60,21 @@ impl Application {
 			])),
 			application_layout,
 			area,
-		}
+			window: window.clone(),
+		};
+		application.build_ui();
+		application
 	}
 
-	pub fn build_ui(&self, application: &gtk::Application) {
-		let window = gtk::ApplicationWindow::new(application);
+	pub fn build_ui(&self) {
+		self.window.set_title("Handwritten notetaking editor");
+		self.window.set_border_width(10);
+		self.window.set_position(WindowPosition::Center);
+		self.window.set_default_size(800, 600);
 
-		window.set_title("Handwritten notetaking editor");
-		window.set_border_width(10);
-		window.set_position(WindowPosition::Center);
-		window.set_default_size(800, 600);
+		self.application_layout(&self.window);
 
-		self.application_layout(&window);
-
-		window.show_all();
+		self.window.show_all();
 	}
 
 	fn application_layout(&self, window: &ApplicationWindow) {
@@ -347,10 +347,38 @@ impl Application {
 		button_press: &Rc<Mutex<bool>>,
 		size_tool: &Scale,
 	) {
-		let drawing_alpha = Scale::with_range(Orientation::Horizontal, 0.01, 1.0, 0.01);
-		drawing_alpha.set_value(1.0);
+		let rgba = Rc::new(Mutex::new((0.0, 0.0, 0.0, 0.0)));
+		let color_widget = Button::with_label("Colors");
+		{
+			let rgba = Rc::clone(&rgba);
+			color_widget.connect_clicked(clone!(@strong self.window as window => move |_| {
+				let dialog = gtk::Dialog::with_buttons(
+					Some("Color"),
+					Some(&window.clone()),
+					gtk::DialogFlags::MODAL,
+					&[("Close", ResponseType::Close)],
+				);
+				dialog.set_default_response(ResponseType::Close);
+				dialog.connect_response(|dialog, _| dialog.close());
 
-		pack.pack_start(&drawing_alpha, true, true, 0);
+				let value_scales = [
+					Scale::with_range(Orientation::Horizontal, 0.01, 1.0, 0.01),
+					Scale::with_range(Orientation::Horizontal, 0.01, 1.0, 0.01),
+					Scale::with_range(Orientation::Horizontal, 0.01, 1.0, 0.01),
+					Scale::with_range(Orientation::Horizontal, 0.01, 1.0, 0.01),
+				];
+				let content_area = dialog.get_content_area();
+				value_scales.iter().for_each(|i| {
+					i.set_value(1.0);
+					content_area.add(i);
+				});
+				dialog.show_all();
+
+				let scale_values: Vec<f64> = value_scales.iter().map(|i| i.get_value()).collect();
+				*rgba.lock().unwrap() = (scale_values[0], scale_values[1], scale_values[2], scale_values[3]);
+			}));
+		}
+		pack.pack_start(&color_widget, false, false, 0);
 
 		let current_draw_tool = Rc::new(Mutex::new(CurrentDrawTool::Pencil));
 		let pencil = Rc::new(Mutex::new(Heap::new(Pencil::new(
@@ -374,23 +402,26 @@ impl Application {
 			pack,
 		))));
 
-		let pages = Rc::clone(&pages);
-		let current_page = Rc::clone(&current_page);
-		let button_press = Rc::clone(&button_press);
-		area.connect_motion_notify_event(clone!(@strong area, @strong size_tool => move |_, e| {
-		if *button_press.lock().unwrap() {
-			let active_draw_tool: Heap<dyn DrawTool> = match *current_draw_tool.lock().unwrap() {
-				CurrentDrawTool::Pencil => Heap::new(*Rc::clone(&pencil).lock().unwrap().clone()),
-				CurrentDrawTool::Eraser => Heap::new(*Rc::clone(&eraser).lock().unwrap().clone()),
-				CurrentDrawTool::LineEraser => Heap::new(*Rc::clone(&line_eraser).lock().unwrap().clone()),
-				CurrentDrawTool::LineTool => Heap::new(*Rc::clone(&line).lock().unwrap().clone()),
-				CurrentDrawTool::Selection => Heap::new(*Rc::clone(&selection).lock().unwrap().clone()),
-			};
-			active_draw_tool.manipulate(Rc::clone(&pages), Rc::clone(&current_page), e.get_position(), size_tool.get_value(), drawing_alpha.get_value());
+		{
+			let pages = Rc::clone(&pages);
+			let current_page = Rc::clone(&current_page);
+			let button_press = Rc::clone(&button_press);
+			let rgba = Rc::clone(&rgba);
+			area.connect_motion_notify_event(clone!(@strong area, @strong size_tool => move |_, e| {
+				if *button_press.lock().unwrap() {
+					let active_draw_tool: Heap<dyn DrawTool> = match *current_draw_tool.lock().unwrap() {
+						CurrentDrawTool::Pencil => Heap::new(*Rc::clone(&pencil).lock().unwrap().clone()),
+						CurrentDrawTool::Eraser => Heap::new(*Rc::clone(&eraser).lock().unwrap().clone()),
+						CurrentDrawTool::LineEraser => Heap::new(*Rc::clone(&line_eraser).lock().unwrap().clone()),
+						CurrentDrawTool::LineTool => Heap::new(*Rc::clone(&line).lock().unwrap().clone()),
+						CurrentDrawTool::Selection => Heap::new(*Rc::clone(&selection).lock().unwrap().clone()),
+					};
+					active_draw_tool.manipulate(Rc::clone(&pages), Rc::clone(&current_page), e.get_position(), size_tool.get_value(), *rgba.lock().unwrap());
+				}
+				area.queue_draw();
+				Inhibit(false)
+			}));
 		}
-		area.queue_draw();
-		Inhibit(false)
-	}));
 	}
 
 	fn position_pointer(&self, area: &DrawingArea, size_tool: &Scale) {

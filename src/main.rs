@@ -10,7 +10,7 @@ fn main() {
 			.expect("Initialization failed...");
 
 	application.connect_activate(move |app| {
-		Application::new().build_ui(app);
+		Application::new(app);
 	});
 
 	application.run(&args().collect::<Vec<_>>());

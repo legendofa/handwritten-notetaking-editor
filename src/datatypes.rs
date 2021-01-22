@@ -24,7 +24,7 @@ pub trait DrawTool {
 		current_page: Rc<Mutex<usize>>,
 		position: (f64, f64),
 		size: f64,
-		alpha: f64,
+		rgba: (f64, f64, f64, f64),
 	);
 }
 
@@ -50,13 +50,13 @@ impl DrawTool for Pencil {
 		current_page: Rc<Mutex<usize>>,
 		position: (f64, f64),
 		size: f64,
-		alpha: f64,
+		rgba: (f64, f64, f64, f64),
 	) {
 		let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
 		lines
 			.last_mut()
 			.unwrap()
-			.push(Drawpoint::new(position, size, (0.0, 0.0, 0.0, alpha)));
+			.push(Drawpoint::new(position, size, rgba));
 	}
 }
 
@@ -82,7 +82,7 @@ impl DrawTool for Eraser {
 		current_page: Rc<Mutex<usize>>,
 		position: (f64, f64),
 		size: f64,
-		alpha: f64,
+		rgba: (f64, f64, f64, f64),
 	) {
 		let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
 		let mut removal_queue: Vec<(usize, usize)> = Vec::new();
@@ -133,7 +133,7 @@ impl DrawTool for LineEraser {
 		current_page: Rc<Mutex<usize>>,
 		position: (f64, f64),
 		size: f64,
-		alpha: f64,
+		rgba: (f64, f64, f64, f64),
 	) {
 		let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
 		lines.retain(|line| {
@@ -172,11 +172,11 @@ impl DrawTool for LineTool {
 		current_page: Rc<Mutex<usize>>,
 		position: (f64, f64),
 		size: f64,
-		alpha: f64,
+		rgba: (f64, f64, f64, f64),
 	) {
 		let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
 		let starting_point = if lines.last().unwrap().is_empty() {
-			Drawpoint::new(position, size, (0.0, 0.0, 0.0, alpha))
+			Drawpoint::new(position, size, rgba)
 		} else {
 			lines.last().unwrap()[0].clone()
 		};
@@ -195,7 +195,7 @@ impl DrawTool for LineTool {
 				starting_point.position.0 + vector.0 * (i as f64),
 				starting_point.position.1 + vector.1 * (i as f64),
 			);
-			lines.push(Drawpoint::new(new_position, size, (0.0, 0.0, 0.0, alpha)));
+			lines.push(Drawpoint::new(new_position, size, rgba));
 		}
 	}
 }
@@ -222,7 +222,7 @@ impl DrawTool for Selection {
 		current_page: Rc<Mutex<usize>>,
 		position: (f64, f64),
 		size: f64,
-		alpha: f64,
+		rgba: (f64, f64, f64, f64),
 	) {
 		let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
 		lines.clear();
