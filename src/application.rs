@@ -8,7 +8,7 @@ use std::boxed::Box as Heap;
 use std::f64::consts::PI;
 use std::fs::File;
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Mutex;
 
@@ -139,7 +139,6 @@ impl Application {
 				}
 				file_chooser.close();
 			});
-
 		}));
 
 		let save_file = MenuItem::new();
@@ -148,7 +147,7 @@ impl Application {
 		let pages = Rc::clone(&self.pages);
 		save_file.connect_activate(clone!(@strong window => move |_| {
 			let file_chooser = gtk::FileChooserDialogBuilder::new()
-				.title("Choose file...")
+				.title("Save file...")
 				.action(gtk::FileChooserAction::Save)
 				.local_only(false)
 				.transient_for(&window)
@@ -162,7 +161,6 @@ impl Application {
 				}
 				file_chooser.close();
 			});
-
 		}));
 
 		menu.append(&open_file);
@@ -178,11 +176,29 @@ impl Application {
 
 		self.add_pages(page_pack, area, &self.pages, &self.current_page);
 
-		self.save_file(pack, &self.pages);
-
 		self.undo_redo(pack, area, &self.pages, &self.current_page);
 
+		let save = Button::with_label("Save");
+		{
+			let pages = Rc::clone(&self.pages);
+			save.connect_clicked(move |_| {
+				Self::save_file(&Path::new("test.hnote").to_path_buf(), &pages);
+			});
+		}
+		pack.pack_start(&save, false, false, 0);
+
+		let load = Button::with_label("Load");
+		{
+			let pages = Rc::clone(&self.pages);
+			load.connect_clicked(move |_| {
+				Self::load_file(&Path::new("test.hnote").to_path_buf(), &pages);
+			});
+		}
+		pack.pack_start(&load, false, false, 0);
+
 		let size_tool = Scale::with_range(Orientation::Horizontal, 0.5, 50.0, 0.5);
+		size_tool.set_value(25.0);
+
 		pack.pack_start(&size_tool, true, true, 0);
 
 		self.manage_drawing_modes(
@@ -239,10 +255,10 @@ impl Application {
 		self.position_pointer(area, &size_tool);
 	}
 
-	fn save_file(pack: &Box, pages: &Rc<Mutex<Vec<Page>>>) {
+	fn save_file(path_puf: &PathBuf, pages: &Rc<Mutex<Vec<Page>>>) {
 		let pages = pages.lock().unwrap();
-		let serialized = serde_json::to_string(&pages.clone()).unwrap();
-		let mut file = File::create("test.hnote").unwrap();
+		let serialized = serde_json::to_string(&pages.clone()).expect("Could not serialize pages.");
+		let mut file = File::create(path_puf).expect("Could not create file.");
 		file.write_all(serialized.as_bytes());
 	}
 
@@ -332,6 +348,8 @@ impl Application {
 		size_tool: &Scale,
 	) {
 		let drawing_alpha = Scale::with_range(Orientation::Horizontal, 0.01, 1.0, 0.01);
+		drawing_alpha.set_value(1.0);
+
 		pack.pack_start(&drawing_alpha, true, true, 0);
 
 		let current_draw_tool = Rc::new(Mutex::new(CurrentDrawTool::Pencil));
