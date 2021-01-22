@@ -188,7 +188,6 @@ impl DrawTool for LineTool {
 			(position.0 - starting_point.position.0) / point_count,
 			(position.1 - starting_point.position.1) / point_count,
 		);
-		println!("{:?}", distance);
 		lines.clear();
 		lines.push(starting_point.clone());
 		for i in 1..point_count as usize {

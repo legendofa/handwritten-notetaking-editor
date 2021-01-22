@@ -13,4 +13,4 @@ Cargo.lock
 # End of https://www.toptal.com/developers/gitignore/api/rust
 
 # Custom file format
-*.test.hnote
+*.hnote
