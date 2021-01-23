@@ -56,6 +56,8 @@ impl DrawingInformation {
 pub struct Application {
 	current_page: Rc<Mutex<usize>>,
 	pages: Rc<Mutex<Vec<Page>>>,
+	pages_history: Rc<Mutex<Vec<Vec<Page>>>>,
+	removed_pages_history: Rc<Mutex<Vec<Vec<Page>>>>,
 	application_layout: ApplicationLayout,
 	area: DrawingArea,
 	drawing_information: DrawingInformation,
@@ -70,17 +72,27 @@ impl Application {
 		let area = DrawingArea::new();
 		area.add_events(EventMask::ALL_EVENTS_MASK);
 		let drawing_information = DrawingInformation::new();
+		let pages = Rc::new(Mutex::new(vec![
+			Page::new(
+				Rc::clone(&current_page),
+				area.clone(),
+				&application_layout.page_pack,
+				0,
+			),
+			Page::new(
+				Rc::clone(&current_page),
+				area.clone(),
+				&application_layout.page_pack,
+				1,
+			),
+		]));
+		let pages_history = Rc::new(Mutex::new(vec![pages.lock().unwrap().clone()]));
+		let removed_pages_history = Rc::new(Mutex::new(Vec::<Vec<Page>>::new()));
 		let application = Self {
-			current_page: Rc::clone(&current_page),
-			pages: Rc::new(Mutex::new(vec![
-				Page::new(
-					Rc::clone(&current_page),
-					area.clone(),
-					&application_layout.page_pack,
-					0,
-				),
-				Page::new(current_page, area.clone(), &application_layout.page_pack, 1),
-			])),
+			current_page,
+			pages,
+			pages_history,
+			removed_pages_history,
 			application_layout,
 			area,
 			drawing_information,
@@ -296,22 +308,33 @@ impl Application {
 		}
 		self.add_pages();
 		self.application_layout.page_pack.show_all();
+		*self.pages_history.lock().unwrap() = vec![pages.clone()];
+		self.removed_pages_history.lock().unwrap().clear();
 	}
 
 	fn undo_redo(&self) {
-		let removed_lines = Rc::new(Mutex::new(Vec::<Vec<Drawpoint>>::new()));
+		self.area
+			.connect_button_release_event(clone!(@strong self as this => move |_, _| {
+				let pages = this.pages.lock().unwrap();
+				let pages_history = &mut this.pages_history.lock().unwrap();
+				let removed_pages_history = &mut this.removed_pages_history.lock().unwrap();
+				pages_history.push(pages.clone());
+				removed_pages_history.clear();
+				println!("{:?}", pages_history.len());
+				Inhibit(false)
+			}));
+
 		let undo = Button::with_label("Undo");
 		{
-			undo.connect_clicked(
-				clone!(@strong self as this, @strong removed_lines => move |_| {
-					let lines = &mut this.pages.lock().unwrap()[*this.current_page.lock().unwrap()].lines;
-					let removed_lines = &mut removed_lines.lock().unwrap();
-					if !lines.is_empty() {
-						removed_lines.push(lines.pop().unwrap());
-						this.area.queue_draw();
-					}
-				}),
-			);
+			undo.connect_clicked(clone!(@strong self as this => move |_| {
+				let pages_history = &mut this.pages_history.lock().unwrap();
+				let removed_pages_history = &mut this.removed_pages_history.lock().unwrap();
+				if pages_history.len() > 1 {
+					removed_pages_history.push(pages_history.pop().unwrap());
+					*this.pages.lock().unwrap() = pages_history.last().unwrap().clone();
+					this.area.queue_draw();
+				}
+			}));
 		}
 		self.application_layout
 			.tool_pack
@@ -319,16 +342,15 @@ impl Application {
 
 		let redo = Button::with_label("Redo");
 		{
-			redo.connect_clicked(
-				clone!(@strong self as this, @strong removed_lines => move |_| {
-					let lines = &mut this.pages.lock().unwrap()[*this.current_page.lock().unwrap()].lines;
-					let removed_lines = &mut removed_lines.lock().unwrap();
-					if !removed_lines.is_empty() {
-						lines.push(removed_lines.pop().unwrap());
-						this.area.queue_draw();
-					}
-				}),
-			);
+			redo.connect_clicked(clone!(@strong self as this => move |_| {
+				let pages_history = &mut this.pages_history.lock().unwrap();
+				let removed_pages_history = &mut this.removed_pages_history.lock().unwrap();
+				if !removed_pages_history.is_empty() {
+					pages_history.push(removed_pages_history.pop().unwrap());
+					*this.pages.lock().unwrap() = pages_history.last().unwrap().clone();
+					this.area.queue_draw();
+				}
+			}));
 		}
 		self.application_layout
 			.tool_pack
@@ -427,8 +449,8 @@ impl Application {
 		{
 			self.area.connect_motion_notify_event(clone!(@strong self as this => move |_, e| {
 				if *this.drawing_information.pen_is_active.lock().unwrap() {
-					let current_draw_tool = *this.drawing_information.current_draw_tool.lock().unwrap();
-					let active_draw_tool: Heap<dyn DrawTool> = match current_draw_tool {
+					let current_draw_tool = this.drawing_information.current_draw_tool.lock().unwrap();
+					let active_draw_tool: Heap<dyn DrawTool> = match *current_draw_tool {
 						CurrentDrawTool::Pencil => Heap::new(*pencil.lock().unwrap().clone()),
 						CurrentDrawTool::Eraser => Heap::new(*eraser.lock().unwrap().clone()),
 						CurrentDrawTool::LineEraser => Heap::new(*line_eraser.lock().unwrap().clone()),

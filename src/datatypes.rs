@@ -9,7 +9,7 @@ pub trait Function {
 	fn run(&self);
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub enum CurrentDrawTool {
 	Pencil,
 	Eraser,
