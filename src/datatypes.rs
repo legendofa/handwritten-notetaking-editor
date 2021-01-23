@@ -9,12 +9,14 @@ pub trait Function {
 	fn run(&self);
 }
 
+#[derive(Copy, Clone, Debug)]
 pub enum CurrentDrawTool {
 	Pencil,
 	Eraser,
 	LineEraser,
 	LineTool,
-	Selection,
+	Drag,
+	Clear,
 }
 
 pub trait DrawTool {
@@ -82,7 +84,7 @@ impl DrawTool for Eraser {
 		current_page: Rc<Mutex<usize>>,
 		position: (f64, f64),
 		size: f64,
-		rgba: [f64; 4],
+		_rgba: [f64; 4],
 	) {
 		let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
 		let mut removal_queue: Vec<(usize, usize)> = Vec::new();
@@ -133,7 +135,7 @@ impl DrawTool for LineEraser {
 		current_page: Rc<Mutex<usize>>,
 		position: (f64, f64),
 		size: f64,
-		rgba: [f64; 4],
+		_rgba: [f64; 4],
 	) {
 		let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
 		lines.retain(|line| {
@@ -201,26 +203,75 @@ impl DrawTool for LineTool {
 }
 
 #[derive(Clone, Debug)]
-pub struct Selection {}
+pub struct Drag {}
 
-impl Selection {
+impl Drag {
 	pub fn new(current_draw_tool: Rc<Mutex<CurrentDrawTool>>, pack: &Box) -> Self {
-		let button = Button::with_label("Selection");
+		let button = Button::with_label("Drag");
 		let draw_tool = Self {};
 		button.connect_clicked(move |_| {
-			*current_draw_tool.lock().unwrap() = CurrentDrawTool::Selection;
+			*current_draw_tool.lock().unwrap() = CurrentDrawTool::Drag;
 		});
 		pack.pack_start(&button, false, false, 0);
 		draw_tool
 	}
 }
 
-impl DrawTool for Selection {
+impl DrawTool for Drag {
 	fn manipulate(
 		&self,
 		pages: Rc<Mutex<Vec<Page>>>,
 		current_page: Rc<Mutex<usize>>,
 		position: (f64, f64),
+		_size: f64,
+		_rgba: [f64; 4],
+	) {
+		let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
+		let mut lowest_distance = f64::INFINITY;
+		let mut line_index = None;
+		let mut closest_point = None;
+		for (i, line) in lines.iter().enumerate() {
+			for point in line.iter() {
+				let distance = ((point.position.0 - position.0).powf(2.0)
+					+ (point.position.1 - position.1).powf(2.0))
+				.sqrt();
+				if distance < lowest_distance {
+					lowest_distance = distance;
+					line_index = Some(i);
+					closest_point = Some(point.position);
+				};
+			}
+		}
+		let closest_point = closest_point.expect("No closest point found.");
+		let line_index = line_index.expect("Could not find any elements in lines vector.");
+		for mut point in &mut lines[line_index] {
+			point.position.0 = point.position.0 - closest_point.0 + position.0;
+			point.position.1 = point.position.1 - closest_point.1 + position.1;
+		}
+	}
+}
+
+#[derive(Clone, Debug)]
+pub struct Clear {}
+
+impl Clear {
+	pub fn new(current_draw_tool: Rc<Mutex<CurrentDrawTool>>, pack: &Box) -> Self {
+		let button = Button::with_label("Clear");
+		let draw_tool = Self {};
+		button.connect_clicked(move |_| {
+			*current_draw_tool.lock().unwrap() = CurrentDrawTool::Clear;
+		});
+		pack.pack_start(&button, false, false, 0);
+		draw_tool
+	}
+}
+
+impl DrawTool for Clear {
+	fn manipulate(
+		&self,
+		pages: Rc<Mutex<Vec<Page>>>,
+		current_page: Rc<Mutex<usize>>,
+		_position: (f64, f64),
 		size: f64,
 		rgba: [f64; 4],
 	) {

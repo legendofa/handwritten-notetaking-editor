@@ -37,6 +37,7 @@ struct DrawingInformation {
 	pen_is_active: Rc<Mutex<bool>>,
 	pen_size: Rc<Mutex<f64>>,
 	cursor_position: Rc<Mutex<Option<(f64, f64)>>>,
+	current_draw_tool: Rc<Mutex<CurrentDrawTool>>,
 }
 
 impl DrawingInformation {
@@ -46,6 +47,7 @@ impl DrawingInformation {
 			pen_is_active: Rc::new(Mutex::new(false)),
 			pen_size: Rc::new(Mutex::new(25.0)),
 			cursor_position: Rc::new(Mutex::new(Some((0.0, 0.0)))),
+			current_draw_tool: Rc::new(Mutex::new(CurrentDrawTool::Pencil)),
 		}
 	}
 }
@@ -377,7 +379,7 @@ impl Application {
 				let color_preview = Label::new(None);
 				content_area.add(&color_preview);
 				for (i, scale) in scales.iter().enumerate() {
-					scale.set_value(1.0);
+					scale.set_value(rgba.lock().unwrap()[i]);
 					content_area.add(scale);
 					{
 						scale.connect_change_value(clone!(@strong color_preview, @strong rgba => move |_, _, v| {
@@ -397,37 +399,42 @@ impl Application {
 			.tool_pack
 			.pack_start(&color_widget, false, false, 0);
 
-		let current_draw_tool = Rc::new(Mutex::new(CurrentDrawTool::Pencil));
 		let pencil = Rc::new(Mutex::new(Heap::new(Pencil::new(
-			Rc::clone(&current_draw_tool),
+			Rc::clone(&self.drawing_information.current_draw_tool),
 			&self.application_layout.tool_pack,
 		))));
 		let eraser = Rc::new(Mutex::new(Heap::new(Eraser::new(
-			Rc::clone(&current_draw_tool),
+			Rc::clone(&self.drawing_information.current_draw_tool),
 			&self.application_layout.tool_pack,
 		))));
 		let line_eraser = Rc::new(Mutex::new(Heap::new(LineEraser::new(
-			Rc::clone(&current_draw_tool),
+			Rc::clone(&self.drawing_information.current_draw_tool),
 			&self.application_layout.tool_pack,
 		))));
 		let line = Rc::new(Mutex::new(Heap::new(LineTool::new(
-			Rc::clone(&current_draw_tool),
+			Rc::clone(&self.drawing_information.current_draw_tool),
 			&self.application_layout.tool_pack,
 		))));
-		let selection = Rc::new(Mutex::new(Heap::new(Selection::new(
-			Rc::clone(&current_draw_tool),
+		let drag = Rc::new(Mutex::new(Heap::new(Drag::new(
+			Rc::clone(&self.drawing_information.current_draw_tool),
+			&self.application_layout.tool_pack,
+		))));
+		let clear = Rc::new(Mutex::new(Heap::new(Clear::new(
+			Rc::clone(&self.drawing_information.current_draw_tool),
 			&self.application_layout.tool_pack,
 		))));
 
 		{
 			self.area.connect_motion_notify_event(clone!(@strong self as this => move |_, e| {
 				if *this.drawing_information.pen_is_active.lock().unwrap() {
-					let active_draw_tool: Heap<dyn DrawTool> = match *current_draw_tool.lock().unwrap() {
-						CurrentDrawTool::Pencil => Heap::new(*Rc::clone(&pencil).lock().unwrap().clone()),
-						CurrentDrawTool::Eraser => Heap::new(*Rc::clone(&eraser).lock().unwrap().clone()),
-						CurrentDrawTool::LineEraser => Heap::new(*Rc::clone(&line_eraser).lock().unwrap().clone()),
-						CurrentDrawTool::LineTool => Heap::new(*Rc::clone(&line).lock().unwrap().clone()),
-						CurrentDrawTool::Selection => Heap::new(*Rc::clone(&selection).lock().unwrap().clone()),
+					let current_draw_tool = *this.drawing_information.current_draw_tool.lock().unwrap();
+					let active_draw_tool: Heap<dyn DrawTool> = match current_draw_tool {
+						CurrentDrawTool::Pencil => Heap::new(*pencil.lock().unwrap().clone()),
+						CurrentDrawTool::Eraser => Heap::new(*eraser.lock().unwrap().clone()),
+						CurrentDrawTool::LineEraser => Heap::new(*line_eraser.lock().unwrap().clone()),
+						CurrentDrawTool::LineTool => Heap::new(*line.lock().unwrap().clone()),
+						CurrentDrawTool::Drag => Heap::new(*drag.lock().unwrap().clone()),
+						CurrentDrawTool::Clear => Heap::new(*clear.lock().unwrap().clone()),
 					};
 					let rgba = *this.drawing_information.rgba.lock().unwrap();
 					let pen_size = *this.drawing_information.pen_size.lock().unwrap();
