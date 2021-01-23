@@ -1,3 +1,4 @@
+use glib::clone;
 use gtk::prelude::*;
 use gtk::*;
 use serde::{Deserialize, Serialize};
@@ -286,30 +287,21 @@ pub struct Page {
 }
 
 impl Page {
-	pub fn new(
-		current_page: Rc<Mutex<usize>>,
-		area: DrawingArea,
-		pack: &Box,
-		number: usize,
-	) -> Self {
-		Self::connect_pack(current_page, area, pack, number);
+	pub fn new(current_page: Rc<Mutex<usize>>, area: DrawingArea, pack: &Box) -> Self {
+		Self::connect_pack(current_page, area, pack);
 		Self {
 			lines: Vec::<Vec<Drawpoint>>::new(),
 		}
 	}
 
-	pub fn connect_pack(
-		current_page: Rc<Mutex<usize>>,
-		area: DrawingArea,
-		pack: &Box,
-		number: usize,
-	) {
+	pub fn connect_pack(current_page: Rc<Mutex<usize>>, area: DrawingArea, pack: &Box) {
 		let button = Button::with_label("Page");
-		button.connect_clicked(move |_| {
-			*current_page.lock().unwrap() = number;
-			area.queue_draw();
-		});
 		pack.pack_start(&button, false, false, 0);
+		button.connect_clicked(clone!(@strong pack, @strong button => move |_| {
+			let button_position = pack.get_child_position(&button);
+			*current_page.lock().unwrap() = button_position as usize;
+			area.queue_draw();
+		}));
 		let button_position = pack.get_child_position(&button);
 		pack.set_child_position(&button, button_position - 1);
 	}

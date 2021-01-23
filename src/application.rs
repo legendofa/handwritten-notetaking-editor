@@ -57,7 +57,7 @@ pub struct Application {
 	current_page: Rc<Mutex<usize>>,
 	pages: Rc<Mutex<Vec<Page>>>,
 	pages_history: Rc<Mutex<Vec<Vec<Page>>>>,
-	removed_pages_history: Rc<Mutex<Vec<Vec<Page>>>>,
+	undone_pages_history: Rc<Mutex<Vec<Vec<Page>>>>,
 	application_layout: ApplicationLayout,
 	area: DrawingArea,
 	drawing_information: DrawingInformation,
@@ -77,22 +77,20 @@ impl Application {
 				Rc::clone(&current_page),
 				area.clone(),
 				&application_layout.page_pack,
-				0,
 			),
 			Page::new(
 				Rc::clone(&current_page),
 				area.clone(),
 				&application_layout.page_pack,
-				1,
 			),
 		]));
 		let pages_history = Rc::new(Mutex::new(vec![pages.lock().unwrap().clone()]));
-		let removed_pages_history = Rc::new(Mutex::new(Vec::<Vec<Page>>::new()));
+		let undone_pages_history = Rc::new(Mutex::new(Vec::<Vec<Page>>::new()));
 		let application = Self {
 			current_page,
 			pages,
 			pages_history,
-			removed_pages_history,
+			undone_pages_history,
 			application_layout,
 			area,
 			drawing_information,
@@ -199,7 +197,9 @@ impl Application {
 	}
 
 	fn drawing_mechanics(&self) {
-		self.add_pages();
+		self.add_page();
+
+		self.remove_page();
 
 		self.undo_redo();
 
@@ -294,18 +294,17 @@ impl Application {
 			self.application_layout.page_pack.remove(&button);
 		}
 		let pages = self.pages.lock().unwrap();
-		for (i, _) in pages.iter().enumerate() {
+		for _ in pages.iter() {
 			Page::connect_pack(
 				Rc::clone(&self.current_page),
 				self.area.clone(),
 				&self.application_layout.page_pack,
-				i,
 			);
 		}
-		self.add_pages();
+		self.add_page();
 		self.application_layout.page_pack.show_all();
 		*self.pages_history.lock().unwrap() = vec![pages.clone()];
-		self.removed_pages_history.lock().unwrap().clear();
+		self.undone_pages_history.lock().unwrap().clear();
 	}
 
 	fn undo_redo(&self) {
@@ -313,9 +312,9 @@ impl Application {
 			.connect_button_release_event(clone!(@strong self as this => move |_, _| {
 				let pages = this.pages.lock().unwrap();
 				let pages_history = &mut this.pages_history.lock().unwrap();
-				let removed_pages_history = &mut this.removed_pages_history.lock().unwrap();
+				let undone_pages_history = &mut this.undone_pages_history.lock().unwrap();
 				pages_history.push(pages.clone());
-				removed_pages_history.clear();
+				undone_pages_history.clear();
 				Inhibit(false)
 			}));
 
@@ -323,9 +322,9 @@ impl Application {
 
 		undo.connect_clicked(clone!(@strong self as this => move |_| {
 			let pages_history = &mut this.pages_history.lock().unwrap();
-			let removed_pages_history = &mut this.removed_pages_history.lock().unwrap();
 			if pages_history.len() > 1 {
-				removed_pages_history.push(pages_history.pop().unwrap());
+				let undone_pages_history = &mut this.undone_pages_history.lock().unwrap();
+				undone_pages_history.push(pages_history.pop().unwrap());
 				*this.pages.lock().unwrap() = pages_history.last().unwrap().clone();
 				this.area.queue_draw();
 			}
@@ -338,10 +337,10 @@ impl Application {
 		let redo = Button::with_label("Redo");
 
 		redo.connect_clicked(clone!(@strong self as this => move |_| {
-			let pages_history = &mut this.pages_history.lock().unwrap();
-			let removed_pages_history = &mut this.removed_pages_history.lock().unwrap();
-			if !removed_pages_history.is_empty() {
-				pages_history.push(removed_pages_history.pop().unwrap());
+			let undone_pages_history = &mut this.undone_pages_history.lock().unwrap();
+			if !undone_pages_history.is_empty() {
+				let pages_history = &mut this.pages_history.lock().unwrap();
+				pages_history.push(undone_pages_history.pop().unwrap());
 				*this.pages.lock().unwrap() = pages_history.last().unwrap().clone();
 				this.area.queue_draw();
 			}
@@ -352,7 +351,7 @@ impl Application {
 			.pack_start(&redo, false, false, 0);
 	}
 
-	fn add_pages(&self) {
+	fn add_page(&self) {
 		let add_page = Button::with_label("+");
 
 		add_page.connect_clicked(clone!(@strong self as this => move |_| {
@@ -360,7 +359,6 @@ impl Application {
 				Rc::clone(&this.current_page),
 				this.area.clone(),
 				&this.application_layout.page_pack,
-				this.pages.lock().unwrap().len(),
 			);
 			let pages = &mut this.pages.lock().unwrap();
 			pages.push(page);
@@ -370,6 +368,28 @@ impl Application {
 		self.application_layout
 			.page_pack
 			.pack_start(&add_page, false, false, 0);
+	}
+
+	fn remove_page(&self) {
+		let remove_page = Button::with_label("P-");
+
+		remove_page.connect_clicked(clone!(@strong self as this => move |_| {
+			let pages = &mut this.pages.lock().unwrap();
+			if pages.len() > 1 {
+				let current_page = *this.current_page.lock().unwrap();
+				pages.remove(current_page);
+				*this.current_page.lock().unwrap() = 0;
+				let page_buttons = this.application_layout.page_pack.get_children();
+				let last_page_button = &page_buttons[page_buttons.len() - 2];
+				this.application_layout.page_pack.remove(last_page_button);
+				println!("{:?}", this.application_layout.page_pack.get_children());
+				this.application_layout.page_pack.show_all();
+			}
+		}));
+
+		self.application_layout
+			.tool_pack
+			.pack_start(&remove_page, false, false, 0);
 	}
 
 	fn manage_drawing_modes(&self) {
@@ -442,23 +462,23 @@ impl Application {
 		))));
 
 		self.area.connect_motion_notify_event(clone!(@strong self as this => move |_, e| {
-				if *this.drawing_information.pen_is_active.lock().unwrap() {
-					let current_draw_tool = this.drawing_information.current_draw_tool.lock().unwrap();
-					let active_draw_tool: Heap<dyn DrawTool> = match *current_draw_tool {
-						CurrentDrawTool::Pencil => Heap::new(*pencil.lock().unwrap().clone()),
-						CurrentDrawTool::Eraser => Heap::new(*eraser.lock().unwrap().clone()),
-						CurrentDrawTool::LineEraser => Heap::new(*line_eraser.lock().unwrap().clone()),
-						CurrentDrawTool::LineTool => Heap::new(*line.lock().unwrap().clone()),
-						CurrentDrawTool::Drag => Heap::new(*drag.lock().unwrap().clone()),
-						CurrentDrawTool::Clear => Heap::new(*clear.lock().unwrap().clone()),
-					};
-					let rgba = *this.drawing_information.rgba.lock().unwrap();
-					let pen_size = *this.drawing_information.pen_size.lock().unwrap();
-					active_draw_tool.manipulate(Rc::clone(&this.pages), Rc::clone(&this.current_page), e.get_position(), pen_size, rgba);
-				}
-				this.area.queue_draw();
-				Inhibit(false)
-			}));
+			if *this.drawing_information.pen_is_active.lock().unwrap() {
+				let current_draw_tool = this.drawing_information.current_draw_tool.lock().unwrap();
+				let active_draw_tool: Heap<dyn DrawTool> = match *current_draw_tool {
+					CurrentDrawTool::Pencil => Heap::new(*pencil.lock().unwrap().clone()),
+					CurrentDrawTool::Eraser => Heap::new(*eraser.lock().unwrap().clone()),
+					CurrentDrawTool::LineEraser => Heap::new(*line_eraser.lock().unwrap().clone()),
+					CurrentDrawTool::LineTool => Heap::new(*line.lock().unwrap().clone()),
+					CurrentDrawTool::Drag => Heap::new(*drag.lock().unwrap().clone()),
+					CurrentDrawTool::Clear => Heap::new(*clear.lock().unwrap().clone()),
+				};
+				let rgba = *this.drawing_information.rgba.lock().unwrap();
+				let pen_size = *this.drawing_information.pen_size.lock().unwrap();
+				active_draw_tool.manipulate(Rc::clone(&this.pages), Rc::clone(&this.current_page), e.get_position(), pen_size, rgba);
+			}
+			this.area.queue_draw();
+			Inhibit(false)
+		}));
 	}
 
 	fn position_pointer(&self) {
