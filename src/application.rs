@@ -32,11 +32,31 @@ impl ApplicationLayout {
 }
 
 #[derive(Clone, Debug)]
+struct DrawingInformation {
+	rgba: Rc<Mutex<[f64; 4]>>,
+	pen_is_active: Rc<Mutex<bool>>,
+	pen_size: Rc<Mutex<f64>>,
+	cursor_position: Rc<Mutex<Option<(f64, f64)>>>,
+}
+
+impl DrawingInformation {
+	pub fn new() -> Self {
+		Self {
+			rgba: Rc::new(Mutex::new([0.0, 0.0, 0.0, 1.0])),
+			pen_is_active: Rc::new(Mutex::new(false)),
+			pen_size: Rc::new(Mutex::new(25.0)),
+			cursor_position: Rc::new(Mutex::new(Some((0.0, 0.0)))),
+		}
+	}
+}
+
+#[derive(Clone, Debug)]
 pub struct Application {
 	current_page: Rc<Mutex<usize>>,
 	pages: Rc<Mutex<Vec<Page>>>,
 	application_layout: ApplicationLayout,
 	area: DrawingArea,
+	drawing_information: DrawingInformation,
 	window: ApplicationWindow,
 }
 
@@ -47,7 +67,8 @@ impl Application {
 		let application_layout = ApplicationLayout::new();
 		let area = DrawingArea::new();
 		area.add_events(EventMask::ALL_EVENTS_MASK);
-		let mut application = Self {
+		let drawing_information = DrawingInformation::new();
+		let application = Self {
 			current_page: Rc::clone(&current_page),
 			pages: Rc::new(Mutex::new(vec![
 				Page::new(
@@ -60,6 +81,7 @@ impl Application {
 			])),
 			application_layout,
 			area,
+			drawing_information,
 			window: window.clone(),
 		};
 		application.build_ui();
@@ -78,7 +100,7 @@ impl Application {
 	}
 
 	fn application_layout(&self, window: &ApplicationWindow) {
-		let menu_bar = self.menu_bar(&window);
+		let menu_bar = self.menu_bar();
 
 		self.application_layout
 			.vertical_pack_0
@@ -106,64 +128,52 @@ impl Application {
 			.horizontal_pack_1
 			.pack_start(&self.area, true, true, 0);
 
-		self.drawing_mechanics(
-			&self.area,
-			&self.application_layout.tool_pack,
-			&self.application_layout.page_pack,
-		);
+		self.drawing_mechanics();
 
 		window.add(&self.application_layout.vertical_pack_0);
 	}
 
-	fn menu_bar(&self, window: &ApplicationWindow) -> MenuBar {
+	fn menu_bar(&self) -> MenuBar {
 		let menu = Menu::new();
 		let menu_bar = MenuBar::new();
 		let file = MenuItem::with_label("File");
 		let open_file = MenuItem::new();
 		open_file.add(&Label::new(Some("Open File")));
 
-		let pages = Rc::clone(&self.pages);
-		let current_page = Rc::clone(&self.current_page);
-		open_file.connect_activate(
-			clone!(@strong window, @strong self.application_layout.page_pack as page_pack, @strong self.area as area => move |_| {
-				let file_chooser = gtk::FileChooserDialogBuilder::new()
-					.title("Choose file...")
-					.action(gtk::FileChooserAction::Open)
-					.local_only(false)
-					.transient_for(&window)
-					.modal(true)
-					.build();
-				let pages = Rc::clone(&pages);
-				file_chooser.connect_response(clone!(@strong page_pack => move |file_chooser, response| {
-					if response == gtk::ResponseType::Ok {
-						let filename = file_chooser.get_filename().expect("Couldn't get filename");
-						//Self::load_file(area.clone(), &filename, &pages, &page_pack, &current_page);
-					}
-					file_chooser.close();
-				}));
-			}),
-		);
+		open_file.connect_activate(clone!(@strong self as this => move |_| {
+			let file_chooser = gtk::FileChooserDialogBuilder::new()
+				.title("Choose file...")
+				.action(gtk::FileChooserAction::Open)
+				.local_only(false)
+				.transient_for(&this.window)
+				.modal(true)
+				.build();
+			file_chooser.connect_response(clone!(@strong this => move |file_chooser, response| {
+				if response == gtk::ResponseType::Ok {
+					let filename = file_chooser.get_filename().expect("Couldn't get filename");
+					this.load_file(&filename);
+				}
+				file_chooser.close();
+			}));
+		}));
 
 		let save_file = MenuItem::new();
 		save_file.add(&Label::new(Some("Save File")));
-
-		let pages = Rc::clone(&self.pages);
-		save_file.connect_activate(clone!(@strong window => move |_| {
+		save_file.connect_activate(clone!(@strong self as this => move |_| {
 			let file_chooser = gtk::FileChooserDialogBuilder::new()
 				.title("Save file...")
 				.action(gtk::FileChooserAction::Save)
 				.local_only(false)
-				.transient_for(&window)
+				.transient_for(&this.window)
 				.modal(true)
 				.build();
-			let pages = Rc::clone(&pages);
-			file_chooser.connect_response(move |file_chooser, response| {
+			file_chooser.connect_response(clone!(@strong this => move |file_chooser, response| {
 				if response == gtk::ResponseType::Ok {
 					let filename = file_chooser.get_filename().expect("Couldn't get filename");
-					Self::save_file(&filename, &pages);
+					this.save_file(&filename);
 				}
 				file_chooser.close();
-			});
+			}));
 		}));
 
 		menu.append(&open_file);
@@ -174,70 +184,67 @@ impl Application {
 		menu_bar
 	}
 
-	fn drawing_mechanics(&self, area: &DrawingArea, pack: &Box, page_pack: &Box) {
-		let button_press = Rc::new(Mutex::new(false));
+	fn drawing_mechanics(&self) {
+		self.add_pages();
 
-		self.add_pages(page_pack, area, &self.pages, &self.current_page);
-
-		self.undo_redo(pack, area, &self.pages, &self.current_page);
+		self.undo_redo();
 
 		let save = Button::with_label("Save");
 		{
-			let pages = Rc::clone(&self.pages);
-			save.connect_clicked(move |_| {
-				Self::save_file(&Path::new("test.hnote").to_path_buf(), &pages);
-			});
+			save.connect_clicked(clone!(@strong self as this => move |_| {
+				this.save_file(&Path::new("test.hnote").to_path_buf());
+			}));
 		}
-		pack.pack_start(&save, false, false, 0);
+		self.application_layout
+			.tool_pack
+			.pack_start(&save, false, false, 0);
 
 		let load = Button::with_label("Load");
 		{
-			let pages = Rc::clone(&self.pages);
-			let current_page = Rc::clone(&self.current_page);
-			load.connect_clicked(
-				clone!(@strong self.application_layout.page_pack as page_pack, @strong self.area as area => move |_| {
-					Self::load_file(area.clone(), &Path::new("test.hnote").to_path_buf(), &pages, &page_pack, &current_page);
+			load.connect_clicked(clone!(@strong self as this => move |_| {
+				this.load_file(&Path::new("test.hnote").to_path_buf());
+			}));
+		}
+		self.application_layout
+			.tool_pack
+			.pack_start(&load, false, false, 0);
+
+		let pen_size = Scale::with_range(Orientation::Horizontal, 0.5, 50.0, 0.5);
+		pen_size.set_value(*self.drawing_information.pen_size.lock().unwrap());
+		pen_size.connect_change_value(
+			clone!(@strong self.drawing_information.pen_size as pen_size => move |_, _, v| {
+				*pen_size.lock().unwrap() = v;
+				Inhibit(false)
+			}),
+		);
+
+		self.application_layout
+			.tool_pack
+			.pack_start(&pen_size, true, true, 0);
+
+		self.manage_drawing_modes();
+
+		{
+			self.area
+				.connect_button_press_event(clone!(@strong self as this => move |_, _| {
+					let lines = &mut this.pages.lock().unwrap()[*this.current_page.lock().unwrap()].lines;
+					*this.drawing_information.pen_is_active.lock().unwrap() = true;
+					lines.push(Vec::new());
+					Inhibit(false)
+				}));
+		}
+		{
+			self.area.connect_button_release_event(
+				clone!(@strong self.drawing_information.pen_is_active as pen_is_active => move |_, _| {
+					*pen_is_active.lock().unwrap() = false;
+					Inhibit(false)
 				}),
 			);
 		}
-		pack.pack_start(&load, false, false, 0);
-
-		let size_tool = Scale::with_range(Orientation::Horizontal, 0.5, 50.0, 0.5);
-		size_tool.set_value(25.0);
-
-		pack.pack_start(&size_tool, true, true, 0);
-
-		self.manage_drawing_modes(
-			pack,
-			area,
-			&self.pages,
-			&self.current_page,
-			&button_press,
-			&size_tool,
-		);
-
 		{
 			let pages = Rc::clone(&self.pages);
 			let current_page = Rc::clone(&self.current_page);
-			let button_press = Rc::clone(&button_press);
-			area.connect_button_press_event(move |_, _| {
-				let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
-				*button_press.lock().unwrap() = true;
-				lines.push(Vec::new());
-				Inhibit(false)
-			});
-		}
-		{
-			let button_press = Rc::clone(&button_press);
-			area.connect_button_release_event(move |_, _| {
-				*button_press.lock().unwrap() = false;
-				Inhibit(false)
-			});
-		}
-		{
-			let pages = Rc::clone(&self.pages);
-			let current_page = Rc::clone(&self.current_page);
-			area.connect_draw(move |_, cr| {
+			self.area.connect_draw(move |_, cr| {
 				let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
 				cr.set_source_rgb(1.0, 1.0, 1.0);
 				cr.paint();
@@ -258,118 +265,99 @@ impl Application {
 			});
 		}
 
-		self.position_pointer(area, &size_tool);
+		self.position_pointer();
 	}
 
-	fn save_file(path_puf: &PathBuf, pages: &Rc<Mutex<Vec<Page>>>) {
-		let pages = pages.lock().unwrap();
+	fn save_file(&self, path_puf: &PathBuf) {
+		let pages = self.pages.lock().unwrap();
 		let serialized = serde_json::to_string(&pages.clone()).expect("Could not serialize pages.");
 		let mut file = File::create(path_puf).expect("Could not create file.");
 		file.write_all(serialized.as_bytes());
 	}
 
-	fn load_file(
-		area: DrawingArea,
-		path_puf: &PathBuf,
-		pages: &Rc<Mutex<Vec<Page>>>,
-		page_pack: &Box,
-		current_page: &Rc<Mutex<usize>>,
-	) {
+	fn load_file(&self, path_puf: &PathBuf) {
 		let mut file = File::open(path_puf).expect("Could not open file.");
 		let mut serialized = std::string::String::new();
 		file.read_to_string(&mut serialized)
 			.expect("Could not read to string.");
-		*pages.lock().unwrap() = serde_json::from_str(&serialized).expect("Invalid format.");
-		for button in page_pack.get_children() {
-			page_pack.remove(&button);
+		*self.pages.lock().unwrap() = serde_json::from_str(&serialized).expect("Invalid format.");
+		for button in self.application_layout.page_pack.get_children() {
+			self.application_layout.page_pack.remove(&button);
 		}
-		let pages = pages.lock().unwrap();
+		let pages = self.pages.lock().unwrap();
 		for (i, _) in pages.iter().enumerate() {
-			Page::connect_pack(Rc::clone(&current_page), area.clone(), page_pack, i);
+			Page::connect_pack(
+				Rc::clone(&self.current_page),
+				self.area.clone(),
+				&self.application_layout.page_pack,
+				i,
+			);
 		}
-		page_pack.show_all();
+		self.add_pages();
+		self.application_layout.page_pack.show_all();
 	}
 
-	fn undo_redo(
-		&self,
-		pack: &Box,
-		area: &DrawingArea,
-		pages: &Rc<Mutex<Vec<Page>>>,
-		current_page: &Rc<Mutex<usize>>,
-	) {
+	fn undo_redo(&self) {
 		let removed_lines = Rc::new(Mutex::new(Vec::<Vec<Drawpoint>>::new()));
 		let undo = Button::with_label("Undo");
 		{
-			let pages = Rc::clone(&pages);
-			let current_page = Rc::clone(&current_page);
 			let removed_lines = Rc::clone(&removed_lines);
-			undo.connect_clicked(clone!(@strong area => move |_| {
-				let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
+			undo.connect_clicked(clone!(@strong self as this => move |_| {
+				let lines = &mut this.pages.lock().unwrap()[*this.current_page.lock().unwrap()].lines;
 				let removed_lines = &mut removed_lines.lock().unwrap();
 				if !lines.is_empty() {
 					removed_lines.push(lines.pop().unwrap());
-					area.queue_draw();
+					this.area.queue_draw();
 				}
 			}));
 		}
-		pack.pack_start(&undo, false, false, 0);
+		self.application_layout
+			.tool_pack
+			.pack_start(&undo, false, false, 0);
 
 		let redo = Button::with_label("Redo");
 		{
-			let pages = Rc::clone(&pages);
-			let current_page = Rc::clone(&current_page);
 			let removed_lines = Rc::clone(&removed_lines);
-			redo.connect_clicked(clone!(@strong area => move |_| {
-				let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
+			redo.connect_clicked(clone!(@strong self as this => move |_| {
+				let lines = &mut this.pages.lock().unwrap()[*this.current_page.lock().unwrap()].lines;
 				let removed_lines = &mut removed_lines.lock().unwrap();
 				if !removed_lines.is_empty() {
 					lines.push(removed_lines.pop().unwrap());
-					area.queue_draw();
+					this.area.queue_draw();
 				}
 			}));
 		}
-		pack.pack_start(&redo, false, false, 0);
+		self.application_layout
+			.tool_pack
+			.pack_start(&redo, false, false, 0);
 	}
 
-	fn add_pages(
-		&self,
-		page_pack: &Box,
-		area: &DrawingArea,
-		pages: &Rc<Mutex<Vec<Page>>>,
-		current_page: &Rc<Mutex<usize>>,
-	) {
+	fn add_pages(&self) {
 		let add_page = Button::with_label("+");
 		{
-			let pages = Rc::clone(&pages);
-			let current_page = Rc::clone(&current_page);
-			add_page.connect_clicked(clone!(@strong area, @strong page_pack => move |_| {
+			let pages = Rc::clone(&self.pages);
+			let current_page = Rc::clone(&self.current_page);
+			add_page.connect_clicked(clone!(@strong self as this => move |_| {
 				let page = Page::new(
 					Rc::clone(&current_page),
-					area.clone(),
-					&page_pack,
-					pages.lock().unwrap().len(),
+					this.area.clone(),
+					&this.application_layout.page_pack,
+					this.pages.lock().unwrap().len(),
 				);
-				let pages = &mut pages.lock().unwrap();
+				let pages = &mut this.pages.lock().unwrap();
 				pages.push(page);
-				page_pack.show_all();
+				this.application_layout.page_pack.show_all();
 			}));
 		}
-		page_pack.pack_start(&add_page, false, false, 0);
+		self.application_layout
+			.page_pack
+			.pack_start(&add_page, false, false, 0);
 	}
 
-	fn manage_drawing_modes(
-		&self,
-		pack: &Box,
-		area: &DrawingArea,
-		pages: &Rc<Mutex<Vec<Page>>>,
-		current_page: &Rc<Mutex<usize>>,
-		button_press: &Rc<Mutex<bool>>,
-		size_tool: &Scale,
-	) {
-		let rgba = Rc::new(Mutex::new([1.0; 4]));
+	fn manage_drawing_modes(&self) {
 		let color_widget = Button::with_label("Colors");
 		{
-			let rgba = Rc::clone(&rgba);
+			let rgba = Rc::clone(&self.drawing_information.rgba);
 			color_widget.connect_clicked(clone!(@strong self.window as window => move |_| {
 				let dialog = gtk::Dialog::with_buttons(
 					Some("Colors"),
@@ -407,37 +395,35 @@ impl Application {
 				dialog.show_all();
 			}));
 		}
-		pack.pack_start(&color_widget, false, false, 0);
+		self.application_layout
+			.tool_pack
+			.pack_start(&color_widget, false, false, 0);
 
 		let current_draw_tool = Rc::new(Mutex::new(CurrentDrawTool::Pencil));
 		let pencil = Rc::new(Mutex::new(Heap::new(Pencil::new(
 			Rc::clone(&current_draw_tool),
-			pack,
+			&self.application_layout.tool_pack,
 		))));
 		let eraser = Rc::new(Mutex::new(Heap::new(Eraser::new(
 			Rc::clone(&current_draw_tool),
-			pack,
+			&self.application_layout.tool_pack,
 		))));
 		let line_eraser = Rc::new(Mutex::new(Heap::new(LineEraser::new(
 			Rc::clone(&current_draw_tool),
-			pack,
+			&self.application_layout.tool_pack,
 		))));
 		let line = Rc::new(Mutex::new(Heap::new(LineTool::new(
 			Rc::clone(&current_draw_tool),
-			pack,
+			&self.application_layout.tool_pack,
 		))));
 		let selection = Rc::new(Mutex::new(Heap::new(Selection::new(
 			Rc::clone(&current_draw_tool),
-			pack,
+			&self.application_layout.tool_pack,
 		))));
 
 		{
-			let pages = Rc::clone(&pages);
-			let current_page = Rc::clone(&current_page);
-			let button_press = Rc::clone(&button_press);
-			let rgba = Rc::clone(&rgba);
-			area.connect_motion_notify_event(clone!(@strong area, @strong size_tool => move |_, e| {
-				if *button_press.lock().unwrap() {
+			self.area.connect_motion_notify_event(clone!(@strong self as this => move |_, e| {
+				if *this.drawing_information.pen_is_active.lock().unwrap() {
 					let active_draw_tool: Heap<dyn DrawTool> = match *current_draw_tool.lock().unwrap() {
 						CurrentDrawTool::Pencil => Heap::new(*Rc::clone(&pencil).lock().unwrap().clone()),
 						CurrentDrawTool::Eraser => Heap::new(*Rc::clone(&eraser).lock().unwrap().clone()),
@@ -445,44 +431,51 @@ impl Application {
 						CurrentDrawTool::LineTool => Heap::new(*Rc::clone(&line).lock().unwrap().clone()),
 						CurrentDrawTool::Selection => Heap::new(*Rc::clone(&selection).lock().unwrap().clone()),
 					};
-					let rgba = *rgba.lock().unwrap();
-					active_draw_tool.manipulate(Rc::clone(&pages), Rc::clone(&current_page), e.get_position(), size_tool.get_value(), rgba);
+					let rgba = *this.drawing_information.rgba.lock().unwrap();
+					let pen_size = *this.drawing_information.pen_size.lock().unwrap();
+					active_draw_tool.manipulate(Rc::clone(&this.pages), Rc::clone(&this.current_page), e.get_position(), pen_size, rgba);
 				}
-				area.queue_draw();
+				this.area.queue_draw();
 				Inhibit(false)
 			}));
 		}
 	}
 
-	fn position_pointer(&self, area: &DrawingArea, size_tool: &Scale) {
-		let cursor_position = Rc::new(Mutex::new(Some((0.0, 0.0))));
-
+	fn position_pointer(&self) {
 		{
-			let cursor_position = Rc::clone(&cursor_position);
-			area.connect_motion_notify_event(clone!(@strong area => move |_, e| {
-				*cursor_position.lock().unwrap() = Some(e.get_position());
-				Inhibit(false)
-			}));
+			self.area.connect_motion_notify_event(
+				clone!(@strong self.drawing_information.cursor_position as cursor_position => move |_, e| {
+					*cursor_position.lock().unwrap() = Some(e.get_position());
+					Inhibit(false)
+				}),
+			);
 		}
 		{
-			let cursor_position = Rc::clone(&cursor_position);
-			area.connect_leave_notify_event(move |_, _| {
+			let cursor_position = Rc::clone(&self.drawing_information.cursor_position);
+			self.area.connect_leave_notify_event(move |_, _| {
 				*cursor_position.lock().unwrap() = None;
 				Inhibit(false)
 			});
 		}
 		{
-			let cursor_position = Rc::clone(&cursor_position);
-			area.connect_draw(clone!(@strong size_tool => move |_, cr| {
-			let cursor_position = *cursor_position.lock().unwrap();
-			if cursor_position.is_some() {
-				cr.set_source_rgba(0.0, 0.0, 0.0, 0.5);
-				cr.set_line_width(5.0);
-				cr.arc(cursor_position.unwrap().0, cursor_position.unwrap().1, size_tool.get_value() / 2.0, 0.0, PI * 2.0);
-				cr.stroke();
-			}
-			Inhibit(false)
-		}));
+			self.area
+				.connect_draw(clone!(@strong self as this => move |_, cr| {
+					let cursor_position = *this.drawing_information.cursor_position.lock().unwrap();
+					if cursor_position.is_some() {
+						let pen_size = *this.drawing_information.pen_size.lock().unwrap();
+						let rgba = *this.drawing_information.rgba.lock().unwrap();
+						cr.set_source_rgba(
+							rgba[0],
+							rgba[1],
+							rgba[2],
+							rgba[3],
+						);
+						cr.set_line_width(5.0);
+						cr.arc(cursor_position.unwrap().0, cursor_position.unwrap().1, pen_size / 2.0, 0.0, PI * 2.0);
+						cr.stroke();
+					}
+					Inhibit(false)
+				}));
 		}
 	}
 }
