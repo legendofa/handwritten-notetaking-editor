@@ -242,27 +242,26 @@ impl Application {
 			);
 		}
 		{
-			let pages = Rc::clone(&self.pages);
-			let current_page = Rc::clone(&self.current_page);
-			self.area.connect_draw(move |_, cr| {
-				let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
-				cr.set_source_rgb(1.0, 1.0, 1.0);
-				cr.paint();
-				for stroke in lines.iter() {
-					for drawpoint in stroke {
-						cr.set_source_rgba(
-							drawpoint.rgba[0],
-							drawpoint.rgba[1],
-							drawpoint.rgba[2],
-							drawpoint.rgba[3],
-						);
-						cr.set_line_width(drawpoint.line_width);
-						cr.line_to(drawpoint.position.0, drawpoint.position.1);
+			self.area
+				.connect_draw(clone!(@strong self as this => move |_, cr| {
+					let lines = &mut this.pages.lock().unwrap()[*this.current_page.lock().unwrap()].lines;
+					cr.set_source_rgb(1.0, 1.0, 1.0);
+					cr.paint();
+					for stroke in lines.iter() {
+						for drawpoint in stroke {
+							cr.set_source_rgba(
+								drawpoint.rgba[0],
+								drawpoint.rgba[1],
+								drawpoint.rgba[2],
+								drawpoint.rgba[3],
+							);
+							cr.set_line_width(drawpoint.line_width);
+							cr.line_to(drawpoint.position.0, drawpoint.position.1);
+						}
+						cr.stroke();
 					}
-					cr.stroke();
-				}
-				Inhibit(false)
-			});
+					Inhibit(false)
+				}));
 		}
 
 		self.position_pointer();
@@ -301,15 +300,16 @@ impl Application {
 		let removed_lines = Rc::new(Mutex::new(Vec::<Vec<Drawpoint>>::new()));
 		let undo = Button::with_label("Undo");
 		{
-			let removed_lines = Rc::clone(&removed_lines);
-			undo.connect_clicked(clone!(@strong self as this => move |_| {
-				let lines = &mut this.pages.lock().unwrap()[*this.current_page.lock().unwrap()].lines;
-				let removed_lines = &mut removed_lines.lock().unwrap();
-				if !lines.is_empty() {
-					removed_lines.push(lines.pop().unwrap());
-					this.area.queue_draw();
-				}
-			}));
+			undo.connect_clicked(
+				clone!(@strong self as this, @strong removed_lines => move |_| {
+					let lines = &mut this.pages.lock().unwrap()[*this.current_page.lock().unwrap()].lines;
+					let removed_lines = &mut removed_lines.lock().unwrap();
+					if !lines.is_empty() {
+						removed_lines.push(lines.pop().unwrap());
+						this.area.queue_draw();
+					}
+				}),
+			);
 		}
 		self.application_layout
 			.tool_pack
@@ -317,15 +317,16 @@ impl Application {
 
 		let redo = Button::with_label("Redo");
 		{
-			let removed_lines = Rc::clone(&removed_lines);
-			redo.connect_clicked(clone!(@strong self as this => move |_| {
-				let lines = &mut this.pages.lock().unwrap()[*this.current_page.lock().unwrap()].lines;
-				let removed_lines = &mut removed_lines.lock().unwrap();
-				if !removed_lines.is_empty() {
-					lines.push(removed_lines.pop().unwrap());
-					this.area.queue_draw();
-				}
-			}));
+			redo.connect_clicked(
+				clone!(@strong self as this, @strong removed_lines => move |_| {
+					let lines = &mut this.pages.lock().unwrap()[*this.current_page.lock().unwrap()].lines;
+					let removed_lines = &mut removed_lines.lock().unwrap();
+					if !removed_lines.is_empty() {
+						lines.push(removed_lines.pop().unwrap());
+						this.area.queue_draw();
+					}
+				}),
+			);
 		}
 		self.application_layout
 			.tool_pack
@@ -335,11 +336,9 @@ impl Application {
 	fn add_pages(&self) {
 		let add_page = Button::with_label("+");
 		{
-			let pages = Rc::clone(&self.pages);
-			let current_page = Rc::clone(&self.current_page);
 			add_page.connect_clicked(clone!(@strong self as this => move |_| {
 				let page = Page::new(
-					Rc::clone(&current_page),
+					Rc::clone(&this.current_page),
 					this.area.clone(),
 					&this.application_layout.page_pack,
 					this.pages.lock().unwrap().len(),
@@ -357,11 +356,11 @@ impl Application {
 	fn manage_drawing_modes(&self) {
 		let color_widget = Button::with_label("Colors");
 		{
-			let rgba = Rc::clone(&self.drawing_information.rgba);
-			color_widget.connect_clicked(clone!(@strong self.window as window => move |_| {
+			color_widget.connect_clicked(clone!(@strong self as this => move |_| {
+				let rgba = &this.drawing_information.rgba;
 				let dialog = gtk::Dialog::with_buttons(
 					Some("Colors"),
-					Some(&window.clone()),
+					Some(&this.window.clone()),
 					gtk::DialogFlags::DESTROY_WITH_PARENT,
 					&[("Close", ResponseType::Close)],
 				);
@@ -381,8 +380,7 @@ impl Application {
 					scale.set_value(1.0);
 					content_area.add(scale);
 					{
-						let rgba = Rc::clone(&rgba);
-						scale.connect_change_value(clone!(@strong color_preview => move |_, _, v| {
+						scale.connect_change_value(clone!(@strong color_preview, @strong rgba => move |_, _, v| {
 							let rgba = &mut rgba.lock().unwrap();
 							rgba[i] = v;
 							let rgba = Some(RGBA {red: rgba[0], green: rgba[1], blue: rgba[2], alpha: rgba[3]});
@@ -451,11 +449,12 @@ impl Application {
 			);
 		}
 		{
-			let cursor_position = Rc::clone(&self.drawing_information.cursor_position);
-			self.area.connect_leave_notify_event(move |_, _| {
-				*cursor_position.lock().unwrap() = None;
-				Inhibit(false)
-			});
+			self.area.connect_leave_notify_event(
+				clone!(@strong self.drawing_information.cursor_position as cursor_position => move |_, _| {
+					*cursor_position.lock().unwrap() = None;
+					Inhibit(false)
+				}),
+			);
 		}
 		{
 			self.area
