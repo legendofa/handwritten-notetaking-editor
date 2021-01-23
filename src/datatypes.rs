@@ -272,8 +272,8 @@ impl DrawTool for Clear {
 		pages: Rc<Mutex<Vec<Page>>>,
 		current_page: Rc<Mutex<usize>>,
 		_position: (f64, f64),
-		size: f64,
-		rgba: [f64; 4],
+		_size: f64,
+		_rgba: [f64; 4],
 	) {
 		let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
 		lines.clear();

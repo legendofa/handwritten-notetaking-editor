@@ -204,21 +204,21 @@ impl Application {
 		self.undo_redo();
 
 		let save = Button::with_label("Save");
-		{
-			save.connect_clicked(clone!(@strong self as this => move |_| {
-				this.save_file(&Path::new("test.hnote").to_path_buf());
-			}));
-		}
+
+		save.connect_clicked(clone!(@strong self as this => move |_| {
+			this.save_file(&Path::new("test.hnote").to_path_buf());
+		}));
+
 		self.application_layout
 			.tool_pack
 			.pack_start(&save, false, false, 0);
 
 		let load = Button::with_label("Load");
-		{
-			load.connect_clicked(clone!(@strong self as this => move |_| {
-				this.load_file(&Path::new("test.hnote").to_path_buf());
-			}));
-		}
+
+		load.connect_clicked(clone!(@strong self as this => move |_| {
+			this.load_file(&Path::new("test.hnote").to_path_buf());
+		}));
+
 		self.application_layout
 			.tool_pack
 			.pack_start(&load, false, false, 0);
@@ -238,45 +238,41 @@ impl Application {
 
 		self.manage_drawing_modes();
 
-		{
-			self.area
-				.connect_button_press_event(clone!(@strong self as this => move |_, _| {
-					let lines = &mut this.pages.lock().unwrap()[*this.current_page.lock().unwrap()].lines;
-					*this.drawing_information.pen_is_active.lock().unwrap() = true;
-					lines.push(Vec::new());
-					Inhibit(false)
-				}));
-		}
-		{
-			self.area.connect_button_release_event(
-				clone!(@strong self.drawing_information.pen_is_active as pen_is_active => move |_, _| {
-					*pen_is_active.lock().unwrap() = false;
-					Inhibit(false)
-				}),
-			);
-		}
-		{
-			self.area
-				.connect_draw(clone!(@strong self as this => move |_, cr| {
-					let lines = &mut this.pages.lock().unwrap()[*this.current_page.lock().unwrap()].lines;
-					cr.set_source_rgb(1.0, 1.0, 1.0);
-					cr.paint();
-					for stroke in lines.iter() {
-						for drawpoint in stroke {
-							cr.set_source_rgba(
-								drawpoint.rgba[0],
-								drawpoint.rgba[1],
-								drawpoint.rgba[2],
-								drawpoint.rgba[3],
-							);
-							cr.set_line_width(drawpoint.line_width);
-							cr.line_to(drawpoint.position.0, drawpoint.position.1);
-						}
-						cr.stroke();
+		self.area
+			.connect_button_press_event(clone!(@strong self as this => move |_, _| {
+				let lines = &mut this.pages.lock().unwrap()[*this.current_page.lock().unwrap()].lines;
+				*this.drawing_information.pen_is_active.lock().unwrap() = true;
+				lines.push(Vec::new());
+				Inhibit(false)
+			}));
+
+		self.area.connect_button_release_event(
+			clone!(@strong self.drawing_information.pen_is_active as pen_is_active => move |_, _| {
+				*pen_is_active.lock().unwrap() = false;
+				Inhibit(false)
+			}),
+		);
+
+		self.area
+			.connect_draw(clone!(@strong self as this => move |_, cr| {
+				let lines = &mut this.pages.lock().unwrap()[*this.current_page.lock().unwrap()].lines;
+				cr.set_source_rgb(1.0, 1.0, 1.0);
+				cr.paint();
+				for stroke in lines.iter() {
+					for drawpoint in stroke {
+						cr.set_source_rgba(
+							drawpoint.rgba[0],
+							drawpoint.rgba[1],
+							drawpoint.rgba[2],
+							drawpoint.rgba[3],
+						);
+						cr.set_line_width(drawpoint.line_width);
+						cr.line_to(drawpoint.position.0, drawpoint.position.1);
 					}
-					Inhibit(false)
-				}));
-		}
+					cr.stroke();
+				}
+				Inhibit(false)
+			}));
 
 		self.position_pointer();
 	}
@@ -320,38 +316,37 @@ impl Application {
 				let removed_pages_history = &mut this.removed_pages_history.lock().unwrap();
 				pages_history.push(pages.clone());
 				removed_pages_history.clear();
-				println!("{:?}", pages_history.len());
 				Inhibit(false)
 			}));
 
 		let undo = Button::with_label("Undo");
-		{
-			undo.connect_clicked(clone!(@strong self as this => move |_| {
-				let pages_history = &mut this.pages_history.lock().unwrap();
-				let removed_pages_history = &mut this.removed_pages_history.lock().unwrap();
-				if pages_history.len() > 1 {
-					removed_pages_history.push(pages_history.pop().unwrap());
-					*this.pages.lock().unwrap() = pages_history.last().unwrap().clone();
-					this.area.queue_draw();
-				}
-			}));
-		}
+
+		undo.connect_clicked(clone!(@strong self as this => move |_| {
+			let pages_history = &mut this.pages_history.lock().unwrap();
+			let removed_pages_history = &mut this.removed_pages_history.lock().unwrap();
+			if pages_history.len() > 1 {
+				removed_pages_history.push(pages_history.pop().unwrap());
+				*this.pages.lock().unwrap() = pages_history.last().unwrap().clone();
+				this.area.queue_draw();
+			}
+		}));
+
 		self.application_layout
 			.tool_pack
 			.pack_start(&undo, false, false, 0);
 
 		let redo = Button::with_label("Redo");
-		{
-			redo.connect_clicked(clone!(@strong self as this => move |_| {
-				let pages_history = &mut this.pages_history.lock().unwrap();
-				let removed_pages_history = &mut this.removed_pages_history.lock().unwrap();
-				if !removed_pages_history.is_empty() {
-					pages_history.push(removed_pages_history.pop().unwrap());
-					*this.pages.lock().unwrap() = pages_history.last().unwrap().clone();
-					this.area.queue_draw();
-				}
-			}));
-		}
+
+		redo.connect_clicked(clone!(@strong self as this => move |_| {
+			let pages_history = &mut this.pages_history.lock().unwrap();
+			let removed_pages_history = &mut this.removed_pages_history.lock().unwrap();
+			if !removed_pages_history.is_empty() {
+				pages_history.push(removed_pages_history.pop().unwrap());
+				*this.pages.lock().unwrap() = pages_history.last().unwrap().clone();
+				this.area.queue_draw();
+			}
+		}));
+
 		self.application_layout
 			.tool_pack
 			.pack_start(&redo, false, false, 0);
@@ -359,19 +354,19 @@ impl Application {
 
 	fn add_pages(&self) {
 		let add_page = Button::with_label("+");
-		{
-			add_page.connect_clicked(clone!(@strong self as this => move |_| {
-				let page = Page::new(
-					Rc::clone(&this.current_page),
-					this.area.clone(),
-					&this.application_layout.page_pack,
-					this.pages.lock().unwrap().len(),
-				);
-				let pages = &mut this.pages.lock().unwrap();
-				pages.push(page);
-				this.application_layout.page_pack.show_all();
-			}));
-		}
+
+		add_page.connect_clicked(clone!(@strong self as this => move |_| {
+			let page = Page::new(
+				Rc::clone(&this.current_page),
+				this.area.clone(),
+				&this.application_layout.page_pack,
+				this.pages.lock().unwrap().len(),
+			);
+			let pages = &mut this.pages.lock().unwrap();
+			pages.push(page);
+			this.application_layout.page_pack.show_all();
+		}));
+
 		self.application_layout
 			.page_pack
 			.pack_start(&add_page, false, false, 0);
@@ -379,44 +374,44 @@ impl Application {
 
 	fn manage_drawing_modes(&self) {
 		let color_widget = Button::with_label("Colors");
-		{
-			color_widget.connect_clicked(clone!(@strong self as this => move |_| {
-				let rgba = &this.drawing_information.rgba;
-				let dialog = gtk::Dialog::with_buttons(
-					Some("Colors"),
-					Some(&this.window.clone()),
-					gtk::DialogFlags::DESTROY_WITH_PARENT,
-					&[("Close", ResponseType::Close)],
-				);
-				dialog.set_default_response(ResponseType::Close);
-				dialog.connect_response(|dialog, _| dialog.close());
 
-				let scales = [
-					Scale::with_range(Orientation::Horizontal, 0.01, 1.0, 0.01),
-					Scale::with_range(Orientation::Horizontal, 0.01, 1.0, 0.01),
-					Scale::with_range(Orientation::Horizontal, 0.01, 1.0, 0.01),
-					Scale::with_range(Orientation::Horizontal, 0.01, 1.0, 0.01),
-				];
-				let content_area = dialog.get_content_area();
-				let color_preview = Label::new(None);
-				content_area.add(&color_preview);
-				for (i, scale) in scales.iter().enumerate() {
-					scale.set_value(rgba.lock().unwrap()[i]);
-					content_area.add(scale);
-					{
-						scale.connect_change_value(clone!(@strong color_preview, @strong rgba => move |_, _, v| {
-							let rgba = &mut rgba.lock().unwrap();
-							rgba[i] = v;
-							let rgba = Some(RGBA {red: rgba[0], green: rgba[1], blue: rgba[2], alpha: rgba[3]});
-							color_preview.override_background_color(StateFlags::NORMAL, rgba.as_ref());
-							Inhibit(false)
-						}));
-					}
-				}
+		color_widget.connect_clicked(clone!(@strong self as this => move |_| {
+			let rgba = &this.drawing_information.rgba;
+			let dialog = gtk::Dialog::with_buttons(
+				Some("Colors"),
+				Some(&this.window.clone()),
+				gtk::DialogFlags::DESTROY_WITH_PARENT,
+				&[("Close", ResponseType::Close)],
+			);
+			dialog.set_default_response(ResponseType::Close);
+			dialog.connect_response(|dialog, _| dialog.close());
 
-				dialog.show_all();
-			}));
-		}
+			let scales = [
+				Scale::with_range(Orientation::Horizontal, 0.01, 1.0, 0.01),
+				Scale::with_range(Orientation::Horizontal, 0.01, 1.0, 0.01),
+				Scale::with_range(Orientation::Horizontal, 0.01, 1.0, 0.01),
+				Scale::with_range(Orientation::Horizontal, 0.01, 1.0, 0.01),
+			];
+			let content_area = dialog.get_content_area();
+			let color_preview = Label::new(None);
+			content_area.add(&color_preview);
+			for (i, scale) in scales.iter().enumerate() {
+				scale.set_value(rgba.lock().unwrap()[i]);
+				content_area.add(scale);
+
+					scale.connect_change_value(clone!(@strong color_preview, @strong rgba => move |_, _, v| {
+						let rgba = &mut rgba.lock().unwrap();
+						rgba[i] = v;
+						let rgba = Some(RGBA {red: rgba[0], green: rgba[1], blue: rgba[2], alpha: rgba[3]});
+						color_preview.override_background_color(StateFlags::NORMAL, rgba.as_ref());
+						Inhibit(false)
+					}));
+
+			}
+
+			dialog.show_all();
+		}));
+
 		self.application_layout
 			.tool_pack
 			.pack_start(&color_widget, false, false, 0);
@@ -446,8 +441,7 @@ impl Application {
 			&self.application_layout.tool_pack,
 		))));
 
-		{
-			self.area.connect_motion_notify_event(clone!(@strong self as this => move |_, e| {
+		self.area.connect_motion_notify_event(clone!(@strong self as this => move |_, e| {
 				if *this.drawing_information.pen_is_active.lock().unwrap() {
 					let current_draw_tool = this.drawing_information.current_draw_tool.lock().unwrap();
 					let active_draw_tool: Heap<dyn DrawTool> = match *current_draw_tool {
@@ -465,45 +459,40 @@ impl Application {
 				this.area.queue_draw();
 				Inhibit(false)
 			}));
-		}
 	}
 
 	fn position_pointer(&self) {
-		{
-			self.area.connect_motion_notify_event(
-				clone!(@strong self.drawing_information.cursor_position as cursor_position => move |_, e| {
-					*cursor_position.lock().unwrap() = Some(e.get_position());
-					Inhibit(false)
-				}),
-			);
-		}
-		{
-			self.area.connect_leave_notify_event(
-				clone!(@strong self.drawing_information.cursor_position as cursor_position => move |_, _| {
-					*cursor_position.lock().unwrap() = None;
-					Inhibit(false)
-				}),
-			);
-		}
-		{
-			self.area
-				.connect_draw(clone!(@strong self as this => move |_, cr| {
-					let cursor_position = *this.drawing_information.cursor_position.lock().unwrap();
-					if cursor_position.is_some() {
-						let pen_size = *this.drawing_information.pen_size.lock().unwrap();
-						let rgba = *this.drawing_information.rgba.lock().unwrap();
-						cr.set_source_rgba(
-							rgba[0],
-							rgba[1],
-							rgba[2],
-							rgba[3],
-						);
-						cr.set_line_width(5.0);
-						cr.arc(cursor_position.unwrap().0, cursor_position.unwrap().1, pen_size / 2.0, 0.0, PI * 2.0);
-						cr.stroke();
-					}
-					Inhibit(false)
-				}));
-		}
+		self.area.connect_motion_notify_event(
+			clone!(@strong self.drawing_information.cursor_position as cursor_position => move |_, e| {
+				*cursor_position.lock().unwrap() = Some(e.get_position());
+				Inhibit(false)
+			}),
+		);
+
+		self.area.connect_leave_notify_event(
+			clone!(@strong self.drawing_information.cursor_position as cursor_position => move |_, _| {
+				*cursor_position.lock().unwrap() = None;
+				Inhibit(false)
+			}),
+		);
+
+		self.area
+			.connect_draw(clone!(@strong self as this => move |_, cr| {
+				let cursor_position = *this.drawing_information.cursor_position.lock().unwrap();
+				if cursor_position.is_some() {
+					let pen_size = *this.drawing_information.pen_size.lock().unwrap();
+					let rgba = *this.drawing_information.rgba.lock().unwrap();
+					cr.set_source_rgba(
+						rgba[0],
+						rgba[1],
+						rgba[2],
+						rgba[3],
+					);
+					cr.set_line_width(5.0);
+					cr.arc(cursor_position.unwrap().0, cursor_position.unwrap().1, pen_size / 2.0, 0.0, PI * 2.0);
+					cr.stroke();
+				}
+				Inhibit(false)
+			}));
 	}
 }
