@@ -55,7 +55,9 @@ impl DrawTool for Pencil {
 		size: f64,
 		rgba: [f64; 4],
 	) {
-		let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
+		let mut pages = pages.lock().unwrap();
+		let current_page = current_page.lock().unwrap();
+		let lines = &mut pages[*current_page].lines;
 		lines
 			.last_mut()
 			.unwrap()
@@ -87,7 +89,9 @@ impl DrawTool for Eraser {
 		size: f64,
 		_rgba: [f64; 4],
 	) {
-		let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
+		let mut pages = pages.lock().unwrap();
+		let current_page = current_page.lock().unwrap();
+		let lines = &mut pages[*current_page].lines;
 		let mut removal_queue: Vec<(usize, usize)> = Vec::new();
 		for (i, line) in lines.iter().enumerate() {
 			for (j, point) in line.iter().enumerate() {
@@ -138,7 +142,9 @@ impl DrawTool for LineEraser {
 		size: f64,
 		_rgba: [f64; 4],
 	) {
-		let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
+		let mut pages = pages.lock().unwrap();
+		let current_page = current_page.lock().unwrap();
+		let lines = &mut pages[*current_page].lines;
 		lines.retain(|line| {
 			for point in line {
 				let distance = ((point.position.0 - position.0).powf(2.0)
@@ -177,7 +183,9 @@ impl DrawTool for LineTool {
 		size: f64,
 		rgba: [f64; 4],
 	) {
-		let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
+		let mut pages = pages.lock().unwrap();
+		let current_page = current_page.lock().unwrap();
+		let lines = &mut pages[*current_page].lines;
 		let starting_point = if lines.last().unwrap().is_empty() {
 			Drawpoint::new(position, size, rgba)
 		} else {
@@ -227,7 +235,9 @@ impl DrawTool for Drag {
 		_size: f64,
 		_rgba: [f64; 4],
 	) {
-		let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
+		let mut pages = pages.lock().unwrap();
+		let current_page = current_page.lock().unwrap();
+		let lines = &mut pages[*current_page].lines;
 		let mut lowest_distance = f64::INFINITY;
 		let mut line_index = None;
 		let mut closest_point = None;
@@ -276,7 +286,9 @@ impl DrawTool for Clear {
 		_size: f64,
 		_rgba: [f64; 4],
 	) {
-		let lines = &mut pages.lock().unwrap()[*current_page.lock().unwrap()].lines;
+		let mut pages = pages.lock().unwrap();
+		let current_page = current_page.lock().unwrap();
+		let lines = &mut pages[*current_page].lines;
 		lines.clear();
 	}
 }
@@ -299,7 +311,8 @@ impl Page {
 		pack.pack_start(&button, false, false, 0);
 		button.connect_clicked(clone!(@strong pack, @strong button => move |_| {
 			let button_position = pack.get_child_position(&button);
-			*current_page.lock().unwrap() = button_position as usize;
+			let mut current_page = current_page.lock().unwrap();
+			*current_page = button_position as usize;
 			area.queue_draw();
 		}));
 		let button_position = pack.get_child_position(&button);

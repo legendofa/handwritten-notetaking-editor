@@ -126,7 +126,6 @@ impl Application {
 			true,
 			0,
 		);
-
 		self.application_layout.horizontal_pack_1.pack_start(
 			&self.application_layout.page_pack,
 			false,
@@ -217,7 +216,8 @@ impl Application {
 				let mut pages = this.pages.lock().unwrap();
 				let current_page = this.current_page.lock().unwrap();
 				let lines = &mut pages[*current_page].lines;
-				*this.drawing_information.pen_is_active.lock().unwrap() = true;
+				let mut pen_is_active = this.drawing_information.pen_is_active.lock().unwrap();
+				*pen_is_active = true;
 				lines.push(Vec::new());
 				Inhibit(false)
 			}));
@@ -267,14 +267,17 @@ impl Application {
 	}
 
 	fn load_file(&self, path_puf: &PathBuf) {
+		let mut pages = self.pages.lock().unwrap();
+		let mut current_page = self.current_page.lock().unwrap();
+		let mut page_history = self.pages_history.lock().unwrap();
 		let mut file = File::open(path_puf).expect("Could not open file.");
 		let mut serialized = std::string::String::new();
 		file.read_to_string(&mut serialized)
 			.expect("Could not read to string.");
-		*self.pages.lock().unwrap() = serde_json::from_str(&serialized).expect("Invalid format.");
-		*self.current_page.lock().unwrap() = 0;
+		*pages = serde_json::from_str(&serialized).expect("Invalid format.");
+		*current_page = 0;
 		self.reload_page_pack();
-		*self.pages_history.lock().unwrap() = vec![self.pages.lock().unwrap().clone()];
+		*page_history = vec![pages.clone()];
 		self.undone_pages_history.lock().unwrap().clear();
 	}
 
@@ -349,11 +352,13 @@ impl Application {
 		undo.connect_clicked(clone!(@strong self as this => move |_| {
 			let mut pages_history = this.pages_history.lock().unwrap();
 			if pages_history.len() > 1 {
+				let mut pages = this.pages.lock().unwrap();
+				let mut current_page = this.current_page.lock().unwrap();
 				let mut undone_pages_history = this.undone_pages_history.lock().unwrap();
 				undone_pages_history.push(pages_history.pop().unwrap());
-				*this.pages.lock().unwrap() = pages_history.last().unwrap().clone();
-				if *this.current_page.lock().unwrap() > this.pages.lock().unwrap().len() - 1 {
-					*this.current_page.lock().unwrap() = this.pages.lock().unwrap().len() - 1;
+				*pages = pages_history.last().unwrap().clone();
+				if *current_page > pages.len() - 1 {
+					*current_page = pages.len() - 1;
 				}
 				this.reload_page_pack();
 				this.area.queue_draw();
@@ -367,11 +372,13 @@ impl Application {
 		redo.connect_clicked(clone!(@strong self as this => move |_| {
 			let mut undone_pages_history = this.undone_pages_history.lock().unwrap();
 			if !undone_pages_history.is_empty() {
+				let mut pages = this.pages.lock().unwrap();
+				let mut current_page = this.current_page.lock().unwrap();
 				let mut pages_history = this.pages_history.lock().unwrap();
 				pages_history.push(undone_pages_history.pop().unwrap());
-				*this.pages.lock().unwrap() = pages_history.last().unwrap().clone();
-				if *this.current_page.lock().unwrap() > this.pages.lock().unwrap().len() - 1 {
-					*this.current_page.lock().unwrap() = this.pages.lock().unwrap().len() - 1;
+				*pages = pages_history.last().unwrap().clone();
+				if *current_page > pages.len() - 1 {
+					*current_page = pages.len() - 1;
 				}
 				this.reload_page_pack();
 				this.area.queue_draw();
@@ -422,11 +429,11 @@ impl Application {
 		let move_up = Button::with_label("↓");
 		move_up.connect_clicked(clone!(@strong self as this => move |_| {
 			let mut pages = this.pages.lock().unwrap();
-			let current_page = *this.current_page.lock().unwrap();
-			if current_page < pages.len() - 1 {
-				let page = pages.remove(current_page);
-				*this.current_page.lock().unwrap() += 1;
-				pages.insert(*this.current_page.lock().unwrap(), page);
+			let mut current_page = this.current_page.lock().unwrap();
+			if *current_page < pages.len() - 1 {
+				let page = pages.remove(*current_page);
+				*current_page += 1;
+				pages.insert(*current_page, page);
 			}
 		}));
 		self.application_layout
@@ -436,11 +443,11 @@ impl Application {
 		let move_down = Button::with_label("↑");
 		move_down.connect_clicked(clone!(@strong self as this => move |_| {
 			let mut pages = this.pages.lock().unwrap();
-			let current_page = *this.current_page.lock().unwrap();
-			if current_page > 0 {
-				let page = pages.remove(current_page);
-				*this.current_page.lock().unwrap() -= 1;
-				pages.insert(*this.current_page.lock().unwrap(), page);
+			let mut current_page = this.current_page.lock().unwrap();
+			if *current_page > 0 {
+				let page = pages.remove(*current_page);
+				*current_page -= 1;
+				pages.insert(*current_page, page);
 			}
 		}));
 		self.application_layout
@@ -548,18 +555,17 @@ impl Application {
 			let color_preview = Label::new(None);
 			content_area.pack_start(&color_preview, false, false, 0);
 			for (i, scale) in scales.iter().enumerate() {
-				scale.set_value(rgba.lock().unwrap()[i]);
+				let rgba = *rgba.lock().unwrap();
+				scale.set_value(rgba[i]);
 				content_area.add(scale);
 					scale.connect_change_value(clone!(@strong color_preview, @strong rgba => move |_, _, v| {
-						let mut rgba = rgba.lock().unwrap();
+						let mut rgba = rgba;
 						rgba[i] = v;
 						let rgba = Some(RGBA {red: rgba[0], green: rgba[1], blue: rgba[2], alpha: rgba[3]});
 						color_preview.override_background_color(StateFlags::NORMAL, rgba.as_ref());
 						Inhibit(false)
 					}));
-
 			}
-
 			dialog.show_all();
 		}));
 		color_widget.pack_start(&color_dialog, false, false, 0);
