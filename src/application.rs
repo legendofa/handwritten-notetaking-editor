@@ -63,6 +63,7 @@ pub struct Application {
 	area: DrawingArea,
 	drawing_information: DrawingInformation,
 	window: ApplicationWindow,
+	current_path: Rc<Mutex<Option<PathBuf>>>,
 }
 
 impl Application {
@@ -73,20 +74,14 @@ impl Application {
 		let area = DrawingArea::new();
 		area.add_events(EventMask::ALL_EVENTS_MASK);
 		let drawing_information = DrawingInformation::new();
-		let pages = Rc::new(Mutex::new(vec![
-			Page::new(
-				Rc::clone(&current_page),
-				area.clone(),
-				&application_layout.page_pack,
-			),
-			Page::new(
-				Rc::clone(&current_page),
-				area.clone(),
-				&application_layout.page_pack,
-			),
-		]));
+		let pages = Rc::new(Mutex::new(vec![Page::new(
+			Rc::clone(&current_page),
+			area.clone(),
+			&application_layout.page_pack,
+		)]));
 		let pages_history = Rc::new(Mutex::new(vec![pages.lock().unwrap().clone()]));
 		let undone_pages_history = Rc::new(Mutex::new(Vec::<Vec<Page>>::new()));
+		let current_path = Rc::new(Mutex::new(None));
 		let application = Self {
 			current_page,
 			pages,
@@ -96,6 +91,7 @@ impl Application {
 			area,
 			drawing_information,
 			window: window.clone(),
+			current_path,
 		};
 		application.build_ui();
 		application
@@ -151,42 +147,31 @@ impl Application {
 		let menu_bar = MenuBar::new();
 		let file = MenuItem::with_label("File");
 		let open_file = MenuItem::new();
-		open_file.add(&Label::new(Some("Open File")));
+		open_file.add(&Label::new(Some("Open...")));
 
 		open_file.connect_activate(clone!(@strong self as this => move |_| {
-			let file_chooser = gtk::FileChooserDialogBuilder::new()
-				.title("Choose file...")
-				.action(gtk::FileChooserAction::Open)
-				.local_only(false)
-				.transient_for(&this.window)
-				.modal(true)
-				.build();
-			file_chooser.connect_response(clone!(@strong this => move |file_chooser, response| {
-				if response == gtk::ResponseType::Ok {
-					let filename = file_chooser.get_filename().expect("Couldn't get filename");
-					this.load_file(&filename);
-				}
-				file_chooser.close();
-			}));
+			this.connect_file_dialog(FileChooserAction::Open, Heap::new(clone!(@strong this => move |current_path| {
+				this.load_file(&current_path);
+				*this.current_path.lock().unwrap() = Some(current_path.clone());
+			})));
 		}));
 
 		let save_file = MenuItem::new();
-		save_file.add(&Label::new(Some("Save File")));
+		save_file.add(&Label::new(Some("Save...")));
 		save_file.connect_activate(clone!(@strong self as this => move |_| {
-			let file_chooser = gtk::FileChooserDialogBuilder::new()
-				.title("Save file...")
-				.action(gtk::FileChooserAction::Save)
-				.local_only(false)
-				.transient_for(&this.window)
-				.modal(true)
-				.build();
-			file_chooser.connect_response(clone!(@strong this => move |file_chooser, response| {
-				if response == gtk::ResponseType::Ok {
-					let filename = file_chooser.get_filename().expect("Couldn't get filename");
-					this.save_file(&filename);
-				}
-				file_chooser.close();
-			}));
+			this.connect_path_or_file_dialog(FileChooserAction::Save, Heap::new(clone!(@strong this => move |current_path| {
+				this.save_file(&current_path);
+				*this.current_path.lock().unwrap() = Some(current_path.clone());
+			})));
+		}));
+
+		let save_as_file = MenuItem::new();
+		save_as_file.add(&Label::new(Some("Save as...")));
+		save_as_file.connect_activate(clone!(@strong self as this => move |_| {
+			this.connect_file_dialog(FileChooserAction::Save, Heap::new(clone!(@strong this => move |current_path| {
+				this.save_file(&current_path);
+				*this.current_path.lock().unwrap() = Some(current_path.clone());
+			})));
 		}));
 
 		let export_png = MenuItem::new();
@@ -197,6 +182,7 @@ impl Application {
 
 		menu.append(&open_file);
 		menu.append(&save_file);
+		menu.append(&save_as_file);
 		menu.append(&export_png);
 		file.set_submenu(Some(&menu));
 		menu_bar.append(&file);
@@ -210,28 +196,6 @@ impl Application {
 		self.move_page();
 
 		self.undo_redo();
-
-		let save = Button::with_label("Save");
-
-		save.connect_clicked(clone!(@strong self as this => move |_| {
-			this.save_file(&Path::new("test.hnote").to_path_buf());
-			this.area.queue_draw();
-		}));
-
-		self.application_layout
-			.tool_pack
-			.pack_start(&save, false, false, 0);
-
-		let load = Button::with_label("Load");
-
-		load.connect_clicked(clone!(@strong self as this => move |_| {
-			this.load_file(&Path::new("test.hnote").to_path_buf());
-			this.area.queue_draw();
-		}));
-
-		self.application_layout
-			.tool_pack
-			.pack_start(&load, false, false, 0);
 
 		let pen_size = Scale::with_range(Orientation::Horizontal, 0.5, 50.0, 0.5);
 		pen_size.set_value(*self.drawing_information.pen_size.lock().unwrap());
@@ -250,7 +214,9 @@ impl Application {
 
 		self.area
 			.connect_button_press_event(clone!(@strong self as this => move |_, _| {
-				let lines = &mut this.pages.lock().unwrap()[*this.current_page.lock().unwrap()].lines;
+				let mut pages = this.pages.lock().unwrap();
+				let current_page = this.current_page.lock().unwrap();
+				let lines = &mut pages[*current_page].lines;
 				*this.drawing_information.pen_is_active.lock().unwrap() = true;
 				lines.push(Vec::new());
 				Inhibit(false)
@@ -273,7 +239,9 @@ impl Application {
 	}
 
 	fn context_drawing_mechanics(&self, cr: &Context) {
-		let lines = &mut self.pages.lock().unwrap()[*self.current_page.lock().unwrap()].lines;
+		let mut pages = self.pages.lock().unwrap();
+		let current_page = self.current_page.lock().unwrap();
+		let lines = &mut pages[*current_page].lines;
 		cr.set_source_rgb(1.0, 1.0, 1.0);
 		cr.paint();
 		for stroke in lines.iter() {
@@ -310,6 +278,44 @@ impl Application {
 		self.undone_pages_history.lock().unwrap().clear();
 	}
 
+	fn connect_file_dialog(
+		&self,
+		file_chooser_action: FileChooserAction,
+		action: Heap<dyn Fn(PathBuf)>,
+	) {
+		let file_chooser = FileChooserNativeBuilder::new()
+			.title("Choose file...")
+			.action(file_chooser_action)
+			.local_only(false)
+			.transient_for(&self.window)
+			.modal(true)
+			.build();
+		file_chooser.connect_response(
+			clone!(@strong self as this => move |file_chooser, response| {
+				if response == ResponseType::Accept {
+					let filename = file_chooser.get_filename().expect("Couldn't get filename.");
+					action(filename);
+				}
+				file_chooser.destroy();
+			}),
+		);
+		file_chooser.run();
+	}
+
+	fn connect_path_or_file_dialog(
+		&self,
+		file_chooser_action: FileChooserAction,
+		action: Heap<dyn Fn(PathBuf)>,
+	) {
+		let current_path = self.current_path.lock().unwrap().clone();
+		match current_path {
+			Some(current_path) => action(current_path.clone()),
+			None => {
+				self.connect_file_dialog(file_chooser_action, action);
+			}
+		}
+	}
+
 	fn reload_page_pack(&self) {
 		for button in self.application_layout.page_pack.get_children() {
 			self.application_layout.page_pack.remove(&button);
@@ -332,8 +338,8 @@ impl Application {
 		self.area
 			.connect_button_release_event(clone!(@strong self as this => move |_, _| {
 				let pages = this.pages.lock().unwrap();
-				let pages_history = &mut this.pages_history.lock().unwrap();
-				let undone_pages_history = &mut this.undone_pages_history.lock().unwrap();
+				let mut pages_history = this.pages_history.lock().unwrap();
+				let mut undone_pages_history = this.undone_pages_history.lock().unwrap();
 				pages_history.push(pages.clone());
 				undone_pages_history.clear();
 				Inhibit(false)
@@ -341,9 +347,9 @@ impl Application {
 
 		let undo = Button::with_label("Undo");
 		undo.connect_clicked(clone!(@strong self as this => move |_| {
-			let pages_history = &mut this.pages_history.lock().unwrap();
+			let mut pages_history = this.pages_history.lock().unwrap();
 			if pages_history.len() > 1 {
-				let undone_pages_history = &mut this.undone_pages_history.lock().unwrap();
+				let mut undone_pages_history = this.undone_pages_history.lock().unwrap();
 				undone_pages_history.push(pages_history.pop().unwrap());
 				*this.pages.lock().unwrap() = pages_history.last().unwrap().clone();
 				if *this.current_page.lock().unwrap() > this.pages.lock().unwrap().len() - 1 {
@@ -359,9 +365,9 @@ impl Application {
 
 		let redo = Button::with_label("Redo");
 		redo.connect_clicked(clone!(@strong self as this => move |_| {
-			let undone_pages_history = &mut this.undone_pages_history.lock().unwrap();
+			let mut undone_pages_history = this.undone_pages_history.lock().unwrap();
 			if !undone_pages_history.is_empty() {
-				let pages_history = &mut this.pages_history.lock().unwrap();
+				let mut pages_history = this.pages_history.lock().unwrap();
 				pages_history.push(undone_pages_history.pop().unwrap());
 				*this.pages.lock().unwrap() = pages_history.last().unwrap().clone();
 				if *this.current_page.lock().unwrap() > this.pages.lock().unwrap().len() - 1 {
@@ -384,7 +390,7 @@ impl Application {
 				this.area.clone(),
 				&this.application_layout.page_pack,
 			);
-			let pages = &mut this.pages.lock().unwrap();
+			let mut pages = this.pages.lock().unwrap();
 			pages.push(page);
 			this.application_layout.page_pack.show_all();
 		}));
@@ -396,7 +402,7 @@ impl Application {
 	fn remove_page(&self) {
 		let remove_page = Button::with_label("-");
 		remove_page.connect_clicked(clone!(@strong self as this => move |_| {
-			let pages = &mut this.pages.lock().unwrap();
+			let mut pages = this.pages.lock().unwrap();
 			if pages.len() > 1 {
 				let current_page = *this.current_page.lock().unwrap();
 				pages.remove(current_page);
@@ -415,7 +421,7 @@ impl Application {
 	fn move_page(&self) {
 		let move_up = Button::with_label("↓");
 		move_up.connect_clicked(clone!(@strong self as this => move |_| {
-			let pages = &mut this.pages.lock().unwrap();
+			let mut pages = this.pages.lock().unwrap();
 			let current_page = *this.current_page.lock().unwrap();
 			if current_page < pages.len() - 1 {
 				let page = pages.remove(current_page);
@@ -429,7 +435,7 @@ impl Application {
 
 		let move_down = Button::with_label("↑");
 		move_down.connect_clicked(clone!(@strong self as this => move |_| {
-			let pages = &mut this.pages.lock().unwrap();
+			let mut pages = this.pages.lock().unwrap();
 			let current_page = *this.current_page.lock().unwrap();
 			if current_page > 0 {
 				let page = pages.remove(current_page);
@@ -523,10 +529,10 @@ impl Application {
 		let color_dialog = Button::with_label("Colors");
 		color_dialog.connect_clicked(clone!(@strong self as this => move |_| {
 			let rgba = &this.drawing_information.rgba;
-			let dialog = gtk::Dialog::with_buttons(
+			let dialog = Dialog::with_buttons(
 				Some("Colors"),
 				Some(&this.window.clone()),
-				gtk::DialogFlags::DESTROY_WITH_PARENT,
+				DialogFlags::DESTROY_WITH_PARENT,
 				&[("Close", ResponseType::Close)],
 			);
 			dialog.set_default_response(ResponseType::Close);
@@ -540,12 +546,12 @@ impl Application {
 			];
 			let content_area = dialog.get_content_area();
 			let color_preview = Label::new(None);
-			content_area.add(&color_preview);
+			content_area.pack_start(&color_preview, false, false, 0);
 			for (i, scale) in scales.iter().enumerate() {
 				scale.set_value(rgba.lock().unwrap()[i]);
 				content_area.add(scale);
 					scale.connect_change_value(clone!(@strong color_preview, @strong rgba => move |_, _, v| {
-						let rgba = &mut rgba.lock().unwrap();
+						let mut rgba = rgba.lock().unwrap();
 						rgba[i] = v;
 						let rgba = Some(RGBA {red: rgba[0], green: rgba[1], blue: rgba[2], alpha: rgba[3]});
 						color_preview.override_background_color(StateFlags::NORMAL, rgba.as_ref());
@@ -599,18 +605,23 @@ impl Application {
 	}
 
 	fn export_png(&self) {
-		self.save_file(&Path::new("test.hnote").to_path_buf());
+		self.connect_file_dialog(
+			FileChooserAction::Save,
+			Heap::new(clone!(@strong self as this => move |current_path| {
+				this.save_file(&current_path);
 
-		let area_width = self.area.get_allocated_width();
-		let area_height = self.area.get_allocated_height();
-		let surface = ImageSurface::create(Format::ARgb32, area_width, area_height)
-			.expect("Can't create surface");
-		let cr = Context::new(&surface);
-		self.context_drawing_mechanics(&cr);
+				let area_width = this.area.get_allocated_width();
+				let area_height = this.area.get_allocated_height();
+				let surface = ImageSurface::create(Format::ARgb32, area_width, area_height)
+					.expect("Can't create surface.");
+				let cr = Context::new(&surface);
+				this.context_drawing_mechanics(&cr);
 
-		let mut file = File::create("test.png").expect("Couldn't create 'file.png'");
-		surface
-			.write_to_png(&mut file)
-			.expect("Error create file.png");
+				let mut png = File::create(current_path).expect("Couldn't create file.");
+				surface
+					.write_to_png(&mut png)
+					.expect("Image could not be written out.");
+			})),
+		);
 	}
 }
