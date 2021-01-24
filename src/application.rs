@@ -189,8 +189,15 @@ impl Application {
 			}));
 		}));
 
+		let export_png = MenuItem::new();
+		export_png.add(&Label::new(Some("Export as png...")));
+		export_png.connect_activate(clone!(@strong self as this => move |_| {
+			this.export_png();
+		}));
+
 		menu.append(&open_file);
 		menu.append(&save_file);
+		menu.append(&export_png);
 		file.set_submenu(Some(&menu));
 		menu_bar.append(&file);
 
@@ -258,26 +265,30 @@ impl Application {
 
 		self.area
 			.connect_draw(clone!(@strong self as this => move |_, cr| {
-				let lines = &mut this.pages.lock().unwrap()[*this.current_page.lock().unwrap()].lines;
-				cr.set_source_rgb(1.0, 1.0, 1.0);
-				cr.paint();
-				for stroke in lines.iter() {
-					for drawpoint in stroke {
-						cr.set_source_rgba(
-							drawpoint.rgba[0],
-							drawpoint.rgba[1],
-							drawpoint.rgba[2],
-							drawpoint.rgba[3],
-						);
-						cr.set_line_width(drawpoint.line_width);
-						cr.line_to(drawpoint.position.0, drawpoint.position.1);
-					}
-					cr.stroke();
-				}
+				this.context_drawing_mechanics(cr);
 				Inhibit(false)
 			}));
 
 		self.position_pointer();
+	}
+
+	fn context_drawing_mechanics(&self, cr: &Context) {
+		let lines = &mut self.pages.lock().unwrap()[*self.current_page.lock().unwrap()].lines;
+		cr.set_source_rgb(1.0, 1.0, 1.0);
+		cr.paint();
+		for stroke in lines.iter() {
+			for drawpoint in stroke {
+				cr.set_source_rgba(
+					drawpoint.rgba[0],
+					drawpoint.rgba[1],
+					drawpoint.rgba[2],
+					drawpoint.rgba[3],
+				);
+				cr.set_line_width(drawpoint.line_width);
+				cr.line_to(drawpoint.position.0, drawpoint.position.1);
+			}
+			cr.stroke();
+		}
 	}
 
 	fn save_file(&self, path_puf: &PathBuf) {
@@ -588,21 +599,18 @@ impl Application {
 	}
 
 	fn export_png(&self) {
-		let surface = ImageSurface::create(Format::ARgb32, 120, 120).expect("Can't create surface");
+		self.save_file(&Path::new("test.hnote").to_path_buf());
+
+		let area_width = self.area.get_allocated_width();
+		let area_height = self.area.get_allocated_height();
+		let surface = ImageSurface::create(Format::ARgb32, area_width, area_height)
+			.expect("Can't create surface");
 		let cr = Context::new(&surface);
-		// Examples are in 1.0 x 1.0 coordinate space
-		cr.scale(120.0, 120.0);
+		self.context_drawing_mechanics(&cr);
 
-		// Drawing code goes here
-		cr.set_line_width(0.1);
-		cr.set_source_rgb(0.0, 0.0, 0.0);
-		cr.rectangle(0.25, 0.25, 0.5, 0.5);
-		cr.stroke();
-
-		let mut file = File::create("file.png").expect("Couldn't create 'file.png'");
-		// match surface.write_to_png(&mut file) {
-		// Ok(_) => println!("file.png created"),
-		// Err(_) => println!("Error create file.png"),
-		// }
+		let mut file = File::create("test.png").expect("Couldn't create 'file.png'");
+		surface
+			.write_to_png(&mut file)
+			.expect("Error create file.png");
 	}
 }
