@@ -1,4 +1,5 @@
 use crate::datatypes::*;
+use cairo::{Context, Format, ImageSurface};
 use gdk::*;
 use glib::*;
 use gtk::prelude::*;
@@ -312,6 +313,7 @@ impl Application {
 		}
 		self.add_page();
 		self.remove_page();
+		self.move_page();
 		self.application_layout.page_pack.show_all();
 	}
 
@@ -430,46 +432,7 @@ impl Application {
 	}
 
 	fn manage_drawing_modes(&self) {
-		let color_widget = Button::with_label("Colors");
-		color_widget.connect_clicked(clone!(@strong self as this => move |_| {
-			let rgba = &this.drawing_information.rgba;
-			let dialog = gtk::Dialog::with_buttons(
-				Some("Colors"),
-				Some(&this.window.clone()),
-				gtk::DialogFlags::DESTROY_WITH_PARENT,
-				&[("Close", ResponseType::Close)],
-			);
-			dialog.set_default_response(ResponseType::Close);
-			dialog.connect_response(|dialog, _| dialog.close());
-
-			let scales = [
-				Scale::with_range(Orientation::Horizontal, 0.01, 1.0, 0.01),
-				Scale::with_range(Orientation::Horizontal, 0.01, 1.0, 0.01),
-				Scale::with_range(Orientation::Horizontal, 0.01, 1.0, 0.01),
-				Scale::with_range(Orientation::Horizontal, 0.01, 1.0, 0.01),
-			];
-			let content_area = dialog.get_content_area();
-			let color_preview = Label::new(None);
-			content_area.add(&color_preview);
-			for (i, scale) in scales.iter().enumerate() {
-				scale.set_value(rgba.lock().unwrap()[i]);
-				content_area.add(scale);
-
-					scale.connect_change_value(clone!(@strong color_preview, @strong rgba => move |_, _, v| {
-						let rgba = &mut rgba.lock().unwrap();
-						rgba[i] = v;
-						let rgba = Some(RGBA {red: rgba[0], green: rgba[1], blue: rgba[2], alpha: rgba[3]});
-						color_preview.override_background_color(StateFlags::NORMAL, rgba.as_ref());
-						Inhibit(false)
-					}));
-
-			}
-
-			dialog.show_all();
-		}));
-		self.application_layout
-			.tool_pack
-			.pack_start(&color_widget, false, false, 0);
+		self.color_widget();
 
 		let pencil = Rc::new(Mutex::new(Heap::new(Pencil::new(
 			Rc::clone(&self.drawing_information.current_draw_tool),
@@ -516,6 +479,79 @@ impl Application {
 		}));
 	}
 
+	fn color_widget(&self) {
+		let color_widget = Box::new(Orientation::Horizontal, 0);
+
+		let predefined_colors = [
+			[0.0, 0.0, 0.0, 1.0],
+			[1.0, 1.0, 1.0, 1.0],
+			[1.0, 0.0, 0.0, 1.0],
+			[0.0, 1.0, 0.0, 1.0],
+			[0.0, 0.0, 1.0, 1.0],
+			[1.0, 1.0, 0.0, 1.0],
+			[0.0, 1.0, 1.0, 1.0],
+			[1.0, 0.0, 1.0, 1.0],
+		];
+		for predefined_rgba in predefined_colors.iter() {
+			let select_color = Button::new();
+			select_color.connect_clicked(
+				clone!(@strong self.drawing_information.rgba as rgba, @strong predefined_rgba => move |_| {
+					*rgba.lock().unwrap() = predefined_rgba;
+				}),
+			);
+			let predefined_rgba = Some(RGBA {
+				red: predefined_rgba[0],
+				green: predefined_rgba[1],
+				blue: predefined_rgba[2],
+				alpha: predefined_rgba[3],
+			});
+			select_color.override_background_color(StateFlags::NORMAL, predefined_rgba.as_ref());
+			color_widget.pack_start(&select_color, false, false, 0);
+		}
+
+		let color_dialog = Button::with_label("Colors");
+		color_dialog.connect_clicked(clone!(@strong self as this => move |_| {
+			let rgba = &this.drawing_information.rgba;
+			let dialog = gtk::Dialog::with_buttons(
+				Some("Colors"),
+				Some(&this.window.clone()),
+				gtk::DialogFlags::DESTROY_WITH_PARENT,
+				&[("Close", ResponseType::Close)],
+			);
+			dialog.set_default_response(ResponseType::Close);
+			dialog.connect_response(|dialog, _| dialog.close());
+
+			let scales = [
+				Scale::with_range(Orientation::Horizontal, 0.01, 1.0, 0.01),
+				Scale::with_range(Orientation::Horizontal, 0.01, 1.0, 0.01),
+				Scale::with_range(Orientation::Horizontal, 0.01, 1.0, 0.01),
+				Scale::with_range(Orientation::Horizontal, 0.01, 1.0, 0.01),
+			];
+			let content_area = dialog.get_content_area();
+			let color_preview = Label::new(None);
+			content_area.add(&color_preview);
+			for (i, scale) in scales.iter().enumerate() {
+				scale.set_value(rgba.lock().unwrap()[i]);
+				content_area.add(scale);
+					scale.connect_change_value(clone!(@strong color_preview, @strong rgba => move |_, _, v| {
+						let rgba = &mut rgba.lock().unwrap();
+						rgba[i] = v;
+						let rgba = Some(RGBA {red: rgba[0], green: rgba[1], blue: rgba[2], alpha: rgba[3]});
+						color_preview.override_background_color(StateFlags::NORMAL, rgba.as_ref());
+						Inhibit(false)
+					}));
+
+			}
+
+			dialog.show_all();
+		}));
+		color_widget.pack_start(&color_dialog, false, false, 0);
+
+		self.application_layout
+			.tool_pack
+			.pack_start(&color_widget, false, false, 0);
+	}
+
 	fn position_pointer(&self) {
 		self.area.connect_motion_notify_event(
 			clone!(@strong self.drawing_information.cursor_position as cursor_position => move |_, e| {
@@ -549,5 +585,24 @@ impl Application {
 				}
 				Inhibit(false)
 			}));
+	}
+
+	fn export_png(&self) {
+		let surface = ImageSurface::create(Format::ARgb32, 120, 120).expect("Can't create surface");
+		let cr = Context::new(&surface);
+		// Examples are in 1.0 x 1.0 coordinate space
+		cr.scale(120.0, 120.0);
+
+		// Drawing code goes here
+		cr.set_line_width(0.1);
+		cr.set_source_rgb(0.0, 0.0, 0.0);
+		cr.rectangle(0.25, 0.25, 0.5, 0.5);
+		cr.stroke();
+
+		let mut file = File::create("file.png").expect("Couldn't create 'file.png'");
+		// match surface.write_to_png(&mut file) {
+		// Ok(_) => println!("file.png created"),
+		// Err(_) => println!("Error create file.png"),
+		// }
 	}
 }
