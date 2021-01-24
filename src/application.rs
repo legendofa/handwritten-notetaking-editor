@@ -198,8 +198,8 @@ impl Application {
 
 	fn drawing_mechanics(&self) {
 		self.add_page();
-
 		self.remove_page();
+		self.move_page();
 
 		self.undo_redo();
 
@@ -207,6 +207,7 @@ impl Application {
 
 		save.connect_clicked(clone!(@strong self as this => move |_| {
 			this.save_file(&Path::new("test.hnote").to_path_buf());
+			this.area.queue_draw();
 		}));
 
 		self.application_layout
@@ -217,6 +218,7 @@ impl Application {
 
 		load.connect_clicked(clone!(@strong self as this => move |_| {
 			this.load_file(&Path::new("test.hnote").to_path_buf());
+			this.area.queue_draw();
 		}));
 
 		self.application_layout
@@ -290,6 +292,13 @@ impl Application {
 		file.read_to_string(&mut serialized)
 			.expect("Could not read to string.");
 		*self.pages.lock().unwrap() = serde_json::from_str(&serialized).expect("Invalid format.");
+		*self.current_page.lock().unwrap() = 0;
+		self.reload_page_pack();
+		*self.pages_history.lock().unwrap() = vec![self.pages.lock().unwrap().clone()];
+		self.undone_pages_history.lock().unwrap().clear();
+	}
+
+	fn reload_page_pack(&self) {
 		for button in self.application_layout.page_pack.get_children() {
 			self.application_layout.page_pack.remove(&button);
 		}
@@ -302,9 +311,8 @@ impl Application {
 			);
 		}
 		self.add_page();
+		self.remove_page();
 		self.application_layout.page_pack.show_all();
-		*self.pages_history.lock().unwrap() = vec![pages.clone()];
-		self.undone_pages_history.lock().unwrap().clear();
 	}
 
 	fn undo_redo(&self) {
@@ -319,33 +327,37 @@ impl Application {
 			}));
 
 		let undo = Button::with_label("Undo");
-
 		undo.connect_clicked(clone!(@strong self as this => move |_| {
 			let pages_history = &mut this.pages_history.lock().unwrap();
 			if pages_history.len() > 1 {
 				let undone_pages_history = &mut this.undone_pages_history.lock().unwrap();
 				undone_pages_history.push(pages_history.pop().unwrap());
 				*this.pages.lock().unwrap() = pages_history.last().unwrap().clone();
+				if *this.current_page.lock().unwrap() > this.pages.lock().unwrap().len() - 1 {
+					*this.current_page.lock().unwrap() = this.pages.lock().unwrap().len() - 1;
+				}
+				this.reload_page_pack();
 				this.area.queue_draw();
 			}
 		}));
-
 		self.application_layout
 			.tool_pack
 			.pack_start(&undo, false, false, 0);
 
 		let redo = Button::with_label("Redo");
-
 		redo.connect_clicked(clone!(@strong self as this => move |_| {
 			let undone_pages_history = &mut this.undone_pages_history.lock().unwrap();
 			if !undone_pages_history.is_empty() {
 				let pages_history = &mut this.pages_history.lock().unwrap();
 				pages_history.push(undone_pages_history.pop().unwrap());
 				*this.pages.lock().unwrap() = pages_history.last().unwrap().clone();
+				if *this.current_page.lock().unwrap() > this.pages.lock().unwrap().len() - 1 {
+					*this.current_page.lock().unwrap() = this.pages.lock().unwrap().len() - 1;
+				}
+				this.reload_page_pack();
 				this.area.queue_draw();
 			}
 		}));
-
 		self.application_layout
 			.tool_pack
 			.pack_start(&redo, false, false, 0);
@@ -353,7 +365,6 @@ impl Application {
 
 	fn add_page(&self) {
 		let add_page = Button::with_label("+");
-
 		add_page.connect_clicked(clone!(@strong self as this => move |_| {
 			let page = Page::new(
 				Rc::clone(&this.current_page),
@@ -364,15 +375,13 @@ impl Application {
 			pages.push(page);
 			this.application_layout.page_pack.show_all();
 		}));
-
 		self.application_layout
 			.page_pack
 			.pack_start(&add_page, false, false, 0);
 	}
 
 	fn remove_page(&self) {
-		let remove_page = Button::with_label("P-");
-
+		let remove_page = Button::with_label("-");
 		remove_page.connect_clicked(clone!(@strong self as this => move |_| {
 			let pages = &mut this.pages.lock().unwrap();
 			if pages.len() > 1 {
@@ -380,21 +389,48 @@ impl Application {
 				pages.remove(current_page);
 				*this.current_page.lock().unwrap() = 0;
 				let page_buttons = this.application_layout.page_pack.get_children();
-				let last_page_button = &page_buttons[page_buttons.len() - 2];
+				let last_page_button = &page_buttons[page_buttons.len() - 5];
 				this.application_layout.page_pack.remove(last_page_button);
-				println!("{:?}", this.application_layout.page_pack.get_children());
 				this.application_layout.page_pack.show_all();
 			}
 		}));
-
 		self.application_layout
-			.tool_pack
-			.pack_start(&remove_page, false, false, 0);
+			.page_pack
+			.pack_end(&remove_page, false, false, 0);
+	}
+
+	fn move_page(&self) {
+		let move_up = Button::with_label("↓");
+		move_up.connect_clicked(clone!(@strong self as this => move |_| {
+			let pages = &mut this.pages.lock().unwrap();
+			let current_page = *this.current_page.lock().unwrap();
+			if current_page < pages.len() - 1 {
+				let page = pages.remove(current_page);
+				*this.current_page.lock().unwrap() += 1;
+				pages.insert(*this.current_page.lock().unwrap(), page);
+			}
+		}));
+		self.application_layout
+			.page_pack
+			.pack_end(&move_up, false, false, 0);
+
+		let move_down = Button::with_label("↑");
+		move_down.connect_clicked(clone!(@strong self as this => move |_| {
+			let pages = &mut this.pages.lock().unwrap();
+			let current_page = *this.current_page.lock().unwrap();
+			if current_page > 0 {
+				let page = pages.remove(current_page);
+				*this.current_page.lock().unwrap() -= 1;
+				pages.insert(*this.current_page.lock().unwrap(), page);
+			}
+		}));
+		self.application_layout
+			.page_pack
+			.pack_end(&move_down, false, false, 0);
 	}
 
 	fn manage_drawing_modes(&self) {
 		let color_widget = Button::with_label("Colors");
-
 		color_widget.connect_clicked(clone!(@strong self as this => move |_| {
 			let rgba = &this.drawing_information.rgba;
 			let dialog = gtk::Dialog::with_buttons(
@@ -431,7 +467,6 @@ impl Application {
 
 			dialog.show_all();
 		}));
-
 		self.application_layout
 			.tool_pack
 			.pack_start(&color_widget, false, false, 0);

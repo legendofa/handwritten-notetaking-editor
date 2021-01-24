@@ -303,7 +303,7 @@ impl Page {
 			area.queue_draw();
 		}));
 		let button_position = pack.get_child_position(&button);
-		pack.set_child_position(&button, button_position - 1);
+		pack.set_child_position(&button, button_position - 4);
 	}
 }
 
