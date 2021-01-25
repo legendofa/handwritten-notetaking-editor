@@ -269,16 +269,21 @@ impl Application {
 	fn load_file(&self, path_puf: &PathBuf) {
 		let mut pages = self.pages.lock().unwrap();
 		let mut current_page = self.current_page.lock().unwrap();
-		let mut page_history = self.pages_history.lock().unwrap();
+		let mut pages_history = self.pages_history.lock().unwrap();
+		let mut undone_pages_history = self.undone_pages_history.lock().unwrap();
 		let mut file = File::open(path_puf).expect("Could not open file.");
 		let mut serialized = std::string::String::new();
 		file.read_to_string(&mut serialized)
 			.expect("Could not read to string.");
 		*pages = serde_json::from_str(&serialized).expect("Invalid format.");
 		*current_page = 0;
+		*pages_history = vec![pages.clone()];
+		undone_pages_history.clear();
+		drop(pages);
+		drop(current_page);
+		drop(pages_history);
+		drop(undone_pages_history);
 		self.reload_page_pack();
-		*page_history = vec![pages.clone()];
-		self.undone_pages_history.lock().unwrap().clear();
 	}
 
 	fn connect_file_dialog(
@@ -360,6 +365,9 @@ impl Application {
 				if *current_page > pages.len() - 1 {
 					*current_page = pages.len() - 1;
 				}
+				drop(pages);
+				drop(current_page);
+				drop(undone_pages_history);
 				this.reload_page_pack();
 				this.area.queue_draw();
 			}
@@ -380,6 +388,9 @@ impl Application {
 				if *current_page > pages.len() - 1 {
 					*current_page = pages.len() - 1;
 				}
+				drop(pages);
+				drop(current_page);
+				drop(pages_history);
 				this.reload_page_pack();
 				this.area.queue_draw();
 			}
