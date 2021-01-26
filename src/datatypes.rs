@@ -2,7 +2,7 @@ use glib::clone;
 use gtk::prelude::*;
 use gtk::*;
 use serde::{Deserialize, Serialize};
-use std::boxed::Box as Heap;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Mutex;
 
@@ -296,6 +296,7 @@ impl DrawTool for Clear {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Page {
 	pub lines: Vec<Vec<Drawpoint>>,
+	pub images: Vec<PathBuf>,
 }
 
 impl Page {
@@ -303,6 +304,7 @@ impl Page {
 		Self::connect_pack(current_page, area, pack);
 		Self {
 			lines: Vec::<Vec<Drawpoint>>::new(),
+			images: Vec::<PathBuf>::new(),
 		}
 	}
 

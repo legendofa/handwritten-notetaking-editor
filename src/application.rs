@@ -64,6 +64,7 @@ pub struct Application {
 	drawing_information: DrawingInformation,
 	window: ApplicationWindow,
 	current_path: Rc<Mutex<Option<PathBuf>>>,
+	image_buffer: Rc<Mutex<Vec<ImageSurface>>>,
 }
 
 impl Application {
@@ -82,6 +83,7 @@ impl Application {
 		let pages_history = Rc::new(Mutex::new(vec![pages.lock().unwrap().clone()]));
 		let undone_pages_history = Rc::new(Mutex::new(Vec::<Vec<Page>>::new()));
 		let current_path = Rc::new(Mutex::new(None));
+		let image_buffer = Rc::new(Mutex::new(Vec::<ImageSurface>::new()));
 		let application = Self {
 			current_page,
 			pages,
@@ -92,6 +94,7 @@ impl Application {
 			drawing_information,
 			window: window.clone(),
 			current_path,
+			image_buffer,
 		};
 		application.build_ui();
 		application
@@ -173,6 +176,22 @@ impl Application {
 			})));
 		}));
 
+		let import_png = MenuItem::new();
+		import_png.add(&Label::new(Some("Import png...")));
+		import_png.connect_activate(clone!(@strong self as this => move |_| {
+			this.connect_file_dialog(FileChooserAction::Open, Heap::new(clone!(@strong this => move |current_path| {
+				let mut pages = this.pages.lock().unwrap();
+				let current_page = this.current_page.lock().unwrap();
+				let images = &mut pages[*current_page].images;
+				let mut image_buffer = this.image_buffer.lock().unwrap();
+				images.push(current_path.clone());
+				let mut image = File::open(current_path).expect("Could not open file.");
+				let image_surface =
+					ImageSurface::create_from_png(&mut image).expect("Could create ImageSurface.");
+				image_buffer.push(image_surface);
+			})));
+		}));
+
 		let export_png = MenuItem::new();
 		export_png.add(&Label::new(Some("Export as png...")));
 		export_png.connect_activate(clone!(@strong self as this => move |_| {
@@ -182,6 +201,7 @@ impl Application {
 		menu.append(&open_file);
 		menu.append(&save_file);
 		menu.append(&save_as_file);
+		menu.append(&import_png);
 		menu.append(&export_png);
 		file.set_submenu(Some(&menu));
 		menu_bar.append(&file);
@@ -242,8 +262,13 @@ impl Application {
 		let mut pages = self.pages.lock().unwrap();
 		let current_page = self.current_page.lock().unwrap();
 		let lines = &mut pages[*current_page].lines;
+		let image_buffer = self.image_buffer.lock().unwrap();
 		cr.set_source_rgb(1.0, 1.0, 1.0);
 		cr.paint();
+		for image in image_buffer.iter() {
+			cr.set_source_surface(&image, 0.0, 0.0);
+			cr.paint();
+		}
 		for stroke in lines.iter() {
 			for drawpoint in stroke {
 				cr.set_source_rgba(
