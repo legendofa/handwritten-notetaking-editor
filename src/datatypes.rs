@@ -1,7 +1,9 @@
+use cairo::ImageSurface;
 use glib::clone;
 use gtk::prelude::*;
 use gtk::*;
 use serde::{Deserialize, Serialize};
+use std::fs::File;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Mutex;
@@ -296,27 +298,50 @@ impl DrawTool for Clear {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Page {
 	pub lines: Vec<Vec<Drawpoint>>,
-	pub images: Vec<PathBuf>,
+	pub images: Rc<Mutex<Vec<PathBuf>>>,
 }
 
 impl Page {
-	pub fn new(current_page: Rc<Mutex<usize>>, area: DrawingArea, pack: &Box) -> Self {
-		Self::connect_pack(current_page, area, pack);
-		Self {
+	pub fn new(
+		current_page: Rc<Mutex<usize>>,
+		image_buffer: Rc<Mutex<Vec<ImageSurface>>>,
+		area: DrawingArea,
+		pack: &Box,
+	) -> Self {
+		let page = Self {
 			lines: Vec::<Vec<Drawpoint>>::new(),
-			images: Vec::<PathBuf>::new(),
-		}
+			images: Rc::new(Mutex::new(Vec::<PathBuf>::new())),
+		};
+		page.connect_pack(current_page, image_buffer, area, pack);
+		page
 	}
 
-	pub fn connect_pack(current_page: Rc<Mutex<usize>>, area: DrawingArea, pack: &Box) {
+	pub fn connect_pack(
+		&self,
+		current_page: Rc<Mutex<usize>>,
+		image_buffer: Rc<Mutex<Vec<ImageSurface>>>,
+		area: DrawingArea,
+		pack: &Box,
+	) {
 		let button = Button::with_label("Page");
 		pack.pack_start(&button, false, false, 0);
-		button.connect_clicked(clone!(@strong pack, @strong button => move |_| {
-			let button_position = pack.get_child_position(&button);
-			let mut current_page = current_page.lock().unwrap();
-			*current_page = button_position as usize;
-			area.queue_draw();
-		}));
+		button.connect_clicked(
+			clone!(@strong self as this, @strong image_buffer, @strong pack, @strong button => move |_| {
+				let button_position = pack.get_child_position(&button);
+				let mut current_page = current_page.lock().unwrap();
+				let images = this.images.lock().unwrap();
+				let mut image_buffer = image_buffer.lock().unwrap();
+				image_buffer.clear();
+				for image in images.iter() {
+					let mut image = File::open(image).expect("Could not open file.");
+					let image_surface =
+						ImageSurface::create_from_png(&mut image).expect("Could not create ImageSurface.");
+					image_buffer.push(image_surface);
+				}
+				*current_page = button_position as usize;
+				area.queue_draw();
+			}),
+		);
 		let button_position = pack.get_child_position(&button);
 		pack.set_child_position(&button, button_position - 4);
 	}

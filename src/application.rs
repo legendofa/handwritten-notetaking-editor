@@ -75,15 +75,16 @@ impl Application {
 		let area = DrawingArea::new();
 		area.add_events(EventMask::ALL_EVENTS_MASK);
 		let drawing_information = DrawingInformation::new();
+		let image_buffer = Rc::new(Mutex::new(Vec::<ImageSurface>::new()));
 		let pages = Rc::new(Mutex::new(vec![Page::new(
 			Rc::clone(&current_page),
+			Rc::clone(&image_buffer),
 			area.clone(),
 			&application_layout.page_pack,
 		)]));
 		let pages_history = Rc::new(Mutex::new(vec![pages.lock().unwrap().clone()]));
 		let undone_pages_history = Rc::new(Mutex::new(Vec::<Vec<Page>>::new()));
 		let current_path = Rc::new(Mutex::new(None));
-		let image_buffer = Rc::new(Mutex::new(Vec::<ImageSurface>::new()));
 		let application = Self {
 			current_page,
 			pages,
@@ -183,11 +184,13 @@ impl Application {
 				let mut pages = this.pages.lock().unwrap();
 				let current_page = this.current_page.lock().unwrap();
 				let images = &mut pages[*current_page].images;
+				let mut images = images.lock().unwrap();
 				let mut image_buffer = this.image_buffer.lock().unwrap();
 				images.push(current_path.clone());
+				println!("{:?}", images);
 				let mut image = File::open(current_path).expect("Could not open file.");
 				let image_surface =
-					ImageSurface::create_from_png(&mut image).expect("Could create ImageSurface.");
+					ImageSurface::create_from_png(&mut image).expect("Could not create ImageSurface.");
 				image_buffer.push(image_surface);
 			})));
 		}));
@@ -292,22 +295,29 @@ impl Application {
 	}
 
 	fn load_file(&self, path_puf: &PathBuf) {
-		let mut pages = self.pages.lock().unwrap();
-		let mut current_page = self.current_page.lock().unwrap();
-		let mut pages_history = self.pages_history.lock().unwrap();
-		let mut undone_pages_history = self.undone_pages_history.lock().unwrap();
-		let mut file = File::open(path_puf).expect("Could not open file.");
-		let mut serialized = std::string::String::new();
-		file.read_to_string(&mut serialized)
-			.expect("Could not read to string.");
-		*pages = serde_json::from_str(&serialized).expect("Invalid format.");
-		*current_page = 0;
-		*pages_history = vec![pages.clone()];
-		undone_pages_history.clear();
-		drop(pages);
-		drop(current_page);
-		drop(pages_history);
-		drop(undone_pages_history);
+		{
+			let mut pages = self.pages.lock().unwrap();
+			let mut current_page = self.current_page.lock().unwrap();
+			let mut image_buffer = self.image_buffer.lock().unwrap();
+			let mut pages_history = self.pages_history.lock().unwrap();
+			let mut undone_pages_history = self.undone_pages_history.lock().unwrap();
+			let mut file = File::open(path_puf).expect("Could not open file.");
+			let mut serialized = std::string::String::new();
+			file.read_to_string(&mut serialized)
+				.expect("Could not read to string.");
+			*pages = serde_json::from_str(&serialized).expect("Invalid format.");
+			*current_page = 0;
+			*pages_history = vec![pages.clone()];
+			undone_pages_history.clear();
+			let images = &mut pages[*current_page].images;
+			let images = images.lock().unwrap();
+			for image in images.iter() {
+				let mut image = File::open(image).expect("Could not open file.");
+				let image_surface = ImageSurface::create_from_png(&mut image)
+					.expect("Could not create ImageSurface.");
+				image_buffer.push(image_surface);
+			}
+		}
 		self.reload_page_pack();
 	}
 
@@ -354,9 +364,10 @@ impl Application {
 			self.application_layout.page_pack.remove(&button);
 		}
 		let pages = self.pages.lock().unwrap();
-		for _ in pages.iter() {
-			Page::connect_pack(
+		for page in pages.iter() {
+			page.connect_pack(
 				Rc::clone(&self.current_page),
+				Rc::clone(&self.image_buffer),
 				self.area.clone(),
 				&self.application_layout.page_pack,
 			);
@@ -382,17 +393,16 @@ impl Application {
 		undo.connect_clicked(clone!(@strong self as this => move |_| {
 			let mut pages_history = this.pages_history.lock().unwrap();
 			if pages_history.len() > 1 {
-				let mut pages = this.pages.lock().unwrap();
-				let mut current_page = this.current_page.lock().unwrap();
-				let mut undone_pages_history = this.undone_pages_history.lock().unwrap();
-				undone_pages_history.push(pages_history.pop().unwrap());
-				*pages = pages_history.last().unwrap().clone();
-				if *current_page > pages.len() - 1 {
-					*current_page = pages.len() - 1;
+				{
+					let mut pages = this.pages.lock().unwrap();
+					let mut current_page = this.current_page.lock().unwrap();
+					let mut undone_pages_history = this.undone_pages_history.lock().unwrap();
+					undone_pages_history.push(pages_history.pop().unwrap());
+					*pages = pages_history.last().unwrap().clone();
+					if *current_page > pages.len() - 1 {
+						*current_page = pages.len() - 1;
+					}
 				}
-				drop(pages);
-				drop(current_page);
-				drop(undone_pages_history);
 				this.reload_page_pack();
 				this.area.queue_draw();
 			}
@@ -405,17 +415,16 @@ impl Application {
 		redo.connect_clicked(clone!(@strong self as this => move |_| {
 			let mut undone_pages_history = this.undone_pages_history.lock().unwrap();
 			if !undone_pages_history.is_empty() {
-				let mut pages = this.pages.lock().unwrap();
-				let mut current_page = this.current_page.lock().unwrap();
-				let mut pages_history = this.pages_history.lock().unwrap();
-				pages_history.push(undone_pages_history.pop().unwrap());
-				*pages = pages_history.last().unwrap().clone();
-				if *current_page > pages.len() - 1 {
-					*current_page = pages.len() - 1;
+				{
+					let mut pages = this.pages.lock().unwrap();
+					let mut current_page = this.current_page.lock().unwrap();
+					let mut pages_history = this.pages_history.lock().unwrap();
+					pages_history.push(undone_pages_history.pop().unwrap());
+					*pages = pages_history.last().unwrap().clone();
+					if *current_page > pages.len() - 1 {
+						*current_page = pages.len() - 1;
+					}
 				}
-				drop(pages);
-				drop(current_page);
-				drop(pages_history);
 				this.reload_page_pack();
 				this.area.queue_draw();
 			}
@@ -430,6 +439,7 @@ impl Application {
 		add_page.connect_clicked(clone!(@strong self as this => move |_| {
 			let page = Page::new(
 				Rc::clone(&this.current_page),
+				Rc::clone(&this.image_buffer),
 				this.area.clone(),
 				&this.application_layout.page_pack,
 			);
