@@ -9,7 +9,7 @@ use std::boxed::Box as Heap;
 use std::f64::consts::PI;
 use std::fs::File;
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Mutex;
 
@@ -64,7 +64,7 @@ pub struct Application {
 	drawing_information: DrawingInformation,
 	window: ApplicationWindow,
 	current_path: Rc<Mutex<Option<PathBuf>>>,
-	image_buffer: Rc<Mutex<Vec<ImageSurface>>>,
+	image_buffer: Rc<Mutex<Vec<BufferedImage>>>,
 }
 
 impl Application {
@@ -75,7 +75,7 @@ impl Application {
 		let area = DrawingArea::new();
 		area.add_events(EventMask::ALL_EVENTS_MASK);
 		let drawing_information = DrawingInformation::new();
-		let image_buffer = Rc::new(Mutex::new(Vec::<ImageSurface>::new()));
+		let image_buffer = Rc::new(Mutex::new(Vec::<BufferedImage>::new()));
 		let pages = Rc::new(Mutex::new(vec![Page::new(
 			Rc::clone(&current_page),
 			Rc::clone(&image_buffer),
@@ -186,12 +186,14 @@ impl Application {
 				let images = &mut pages[*current_page].images;
 				let mut images = images.lock().unwrap();
 				let mut image_buffer = this.image_buffer.lock().unwrap();
-				images.push(current_path.clone());
+				let initial_position = (20.0, 20.0);
+				images.push(crate::datatypes::Image::new(current_path.clone(), initial_position));
 				println!("{:?}", images);
 				let mut image = File::open(current_path).expect("Could not open file.");
 				let image_surface =
 					ImageSurface::create_from_png(&mut image).expect("Could not create ImageSurface.");
-				image_buffer.push(image_surface);
+				let buffered_image = BufferedImage::new(image_surface, initial_position);
+				image_buffer.push(buffered_image);
 			})));
 		}));
 
@@ -268,8 +270,12 @@ impl Application {
 		let image_buffer = self.image_buffer.lock().unwrap();
 		cr.set_source_rgb(1.0, 1.0, 1.0);
 		cr.paint();
-		for image in image_buffer.iter() {
-			cr.set_source_surface(&image, 0.0, 0.0);
+		for buffered_image in image_buffer.iter() {
+			cr.set_source_surface(
+				&buffered_image.image_surface,
+				buffered_image.position.0,
+				buffered_image.position.1,
+			);
 			cr.paint();
 		}
 		for stroke in lines.iter() {
@@ -312,10 +318,12 @@ impl Application {
 			let images = &mut pages[*current_page].images;
 			let images = images.lock().unwrap();
 			for image in images.iter() {
-				let mut image = File::open(image).expect("Could not open file.");
+				let image_position = image.position;
+				let mut image = File::open(image.path.clone()).expect("Could not open file.");
 				let image_surface = ImageSurface::create_from_png(&mut image)
 					.expect("Could not create ImageSurface.");
-				image_buffer.push(image_surface);
+				let buffered_image = BufferedImage::new(image_surface, image_position);
+				image_buffer.push(buffered_image);
 			}
 		}
 		self.reload_page_pack();
@@ -548,7 +556,7 @@ impl Application {
 			let rgba = this.drawing_information.rgba.lock().unwrap();
 			let pen_size = this.drawing_information.pen_size.lock().unwrap();
 			let pen_is_active = this.drawing_information.pen_is_active.lock().unwrap();
-			active_draw_tool.lock().unwrap().manipulate(Rc::clone(&this.pages), Rc::clone(&this.current_page), e.get_position(), *pen_size, *pen_is_active, *rgba);
+			active_draw_tool.lock().unwrap().manipulate(Rc::clone(&this.pages), Rc::clone(&this.current_page),Rc::clone(&this.image_buffer), e.get_position(), *pen_size, *pen_is_active, *rgba);
 			this.area.queue_draw();
 			Inhibit(false)
 		}));

@@ -29,6 +29,7 @@ pub trait DrawTool {
 		&mut self,
 		pages: Rc<Mutex<Vec<Page>>>,
 		current_page: Rc<Mutex<usize>>,
+		image_buffer: Rc<Mutex<Vec<BufferedImage>>>,
 		position: (f64, f64),
 		pen_size: f64,
 		pen_is_active: bool,
@@ -87,6 +88,7 @@ impl DrawTool for Pencil {
 		&mut self,
 		pages: Rc<Mutex<Vec<Page>>>,
 		current_page: Rc<Mutex<usize>>,
+		image_buffer: Rc<Mutex<Vec<BufferedImage>>>,
 		position: (f64, f64),
 		pen_size: f64,
 		pen_is_active: bool,
@@ -124,6 +126,7 @@ impl DrawTool for Eraser {
 		&mut self,
 		pages: Rc<Mutex<Vec<Page>>>,
 		current_page: Rc<Mutex<usize>>,
+		image_buffer: Rc<Mutex<Vec<BufferedImage>>>,
 		position: (f64, f64),
 		pen_size: f64,
 		pen_is_active: bool,
@@ -180,6 +183,7 @@ impl DrawTool for LineEraser {
 		&mut self,
 		pages: Rc<Mutex<Vec<Page>>>,
 		current_page: Rc<Mutex<usize>>,
+		image_buffer: Rc<Mutex<Vec<BufferedImage>>>,
 		position: (f64, f64),
 		pen_size: f64,
 		pen_is_active: bool,
@@ -224,6 +228,7 @@ impl DrawTool for LineTool {
 		&mut self,
 		pages: Rc<Mutex<Vec<Page>>>,
 		current_page: Rc<Mutex<usize>>,
+		image_buffer: Rc<Mutex<Vec<BufferedImage>>>,
 		position: (f64, f64),
 		pen_size: f64,
 		pen_is_active: bool,
@@ -263,6 +268,8 @@ impl DrawTool for LineTool {
 pub struct Drag {
 	previous_pen_is_active: bool,
 	previous_lines: Vec<Vec<Drawpoint>>,
+	image_position: (f64, f64),
+	previous_image_position: (f64, f64),
 	starting_position: (f64, f64),
 }
 
@@ -273,12 +280,40 @@ impl Drag {
 			previous_pen_is_active: false,
 			previous_lines: Vec::<Vec<Drawpoint>>::new(),
 			starting_position: (0.0, 0.0),
+			image_position: (0.0, 0.0),
+			previous_image_position: (0.0, 0.0),
 		};
 		button.connect_clicked(move |_| {
 			*current_draw_tool.lock().unwrap() = CurrentDrawTool::Drag;
 		});
 		pack.pack_start(&button, false, false, 0);
 		draw_tool
+	}
+
+	pub fn closest_image(
+		pages: Rc<Mutex<Vec<Page>>>,
+		current_page: Rc<Mutex<usize>>,
+		image_buffer: Rc<Mutex<Vec<BufferedImage>>>,
+		position: (f64, f64),
+	) -> (usize, (f64, f64)) {
+		let image_buffer = image_buffer.lock().unwrap();
+		let mut lowest_distance = f64::INFINITY;
+		let mut buffered_image_index = None;
+		let mut closest_point = None;
+		for (i, buffered_image) in image_buffer.iter().enumerate() {
+			let distance = ((buffered_image.position.0 - position.0).powf(2.0)
+				+ (buffered_image.position.1 - position.1).powf(2.0))
+			.sqrt();
+			if distance < lowest_distance {
+				lowest_distance = distance;
+				buffered_image_index = Some(i);
+				closest_point = Some(buffered_image.position);
+			};
+		}
+		let buffered_image_index =
+			buffered_image_index.expect("Could not find any elements in lines vector.");
+		let closest_point = closest_point.expect("No closest point found.");
+		(buffered_image_index, closest_point)
 	}
 }
 
@@ -287,17 +322,27 @@ impl DrawTool for Drag {
 		&mut self,
 		pages: Rc<Mutex<Vec<Page>>>,
 		current_page: Rc<Mutex<usize>>,
+		image_buffer: Rc<Mutex<Vec<BufferedImage>>>,
 		position: (f64, f64),
 		_pen_size: f64,
 		pen_is_active: bool,
 		_rgba: [f64; 4],
 	) {
 		if pen_is_active {
-			let (line_index, _closest_point) =
+			let (line_index, closest_point_position) =
 				Self::closest_point(Rc::clone(&pages), Rc::clone(&current_page), position);
+			let (buffered_image_index, closest_image_position) = {
+				Self::closest_image(
+					Rc::clone(&pages),
+					Rc::clone(&current_page),
+					Rc::clone(&image_buffer),
+					position,
+				)
+			};
 			let mut pages = pages.lock().unwrap();
 			let current_page = current_page.lock().unwrap();
 			let lines = &mut pages[*current_page].lines;
+			let image_buffer = image_buffer.lock().unwrap();
 			if !self.previous_pen_is_active {
 				self.starting_position = position;
 				self.previous_lines = lines.clone();
@@ -310,11 +355,24 @@ impl DrawTool for Drag {
 				"{:?}, {:?}, {:?}",
 				self.starting_position, vector, line_index
 			);
-			let line = &mut lines[line_index];
-			let previous_line = &mut self.previous_lines[line_index];
-			for (point, prev_point) in line.iter_mut().zip(previous_line) {
-				point.position.0 = prev_point.position.0 + vector.0;
-				point.position.1 = prev_point.position.1 + vector.1;
+			let line_distance = (closest_point_position.0 - position.0).powf(2.0)
+				+ (closest_point_position.1 - position.1).powf(2.0);
+			let buffered_image_distance = (closest_image_position.0 - position.0).powf(2.0)
+				+ (closest_image_position.1 - position.1).powf(2.0);
+			if line_distance <= buffered_image_distance {
+				let line = &mut lines[line_index];
+				let previous_line = &mut self.previous_lines[line_index];
+				for (point, prev_point) in line.iter_mut().zip(previous_line) {
+					point.position.0 = prev_point.position.0 + vector.0;
+					point.position.1 = prev_point.position.1 + vector.1;
+				}
+			} else {
+				// let buffered_image = &mut image_buffer[buffered_image_index];
+				// let previous_buffered_image = &mut self.previous_image_buffer[buffered_image_index];
+				// for (point, prev_point) in buffered_image.iter_mut().zip(previous_buffered_image) {
+				// 	point.position.0 = prev_point.position.0 + vector.0;
+				// 	point.position.1 = prev_point.position.1 + vector.1;
+				// }
 			}
 		}
 		self.previous_pen_is_active = pen_is_active;
@@ -449,6 +507,7 @@ impl DrawTool for RectangleSelection {
 		&mut self,
 		pages: Rc<Mutex<Vec<Page>>>,
 		current_page: Rc<Mutex<usize>>,
+		image_buffer: Rc<Mutex<Vec<BufferedImage>>>,
 		position: (f64, f64),
 		_pen_size: f64,
 		pen_is_active: bool,
@@ -507,6 +566,7 @@ impl DrawTool for Clear {
 		&mut self,
 		pages: Rc<Mutex<Vec<Page>>>,
 		current_page: Rc<Mutex<usize>>,
+		image_buffer: Rc<Mutex<Vec<BufferedImage>>>,
 		_position: (f64, f64),
 		_pen_size: f64,
 		_pen_is_active: bool,
@@ -520,21 +580,48 @@ impl DrawTool for Clear {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Image {
+	pub path: PathBuf,
+	pub position: (f64, f64),
+}
+
+impl Image {
+	pub fn new(path: PathBuf, position: (f64, f64)) -> Self {
+		Self { path, position }
+	}
+}
+
+#[derive(Clone, Debug)]
+pub struct BufferedImage {
+	pub image_surface: ImageSurface,
+	pub position: (f64, f64),
+}
+
+impl BufferedImage {
+	pub fn new(image_surface: ImageSurface, position: (f64, f64)) -> Self {
+		Self {
+			image_surface,
+			position,
+		}
+	}
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Page {
 	pub lines: Vec<Vec<Drawpoint>>,
-	pub images: Rc<Mutex<Vec<PathBuf>>>,
+	pub images: Rc<Mutex<Vec<Image>>>,
 }
 
 impl Page {
 	pub fn new(
 		current_page: Rc<Mutex<usize>>,
-		image_buffer: Rc<Mutex<Vec<ImageSurface>>>,
+		image_buffer: Rc<Mutex<Vec<BufferedImage>>>,
 		area: DrawingArea,
 		pack: &Box,
 	) -> Self {
 		let page = Self {
 			lines: Vec::<Vec<Drawpoint>>::new(),
-			images: Rc::new(Mutex::new(Vec::<PathBuf>::new())),
+			images: Rc::new(Mutex::new(Vec::<Image>::new())),
 		};
 		page.connect_pack(current_page, image_buffer, area, pack);
 		page
@@ -543,7 +630,7 @@ impl Page {
 	pub fn connect_pack(
 		&self,
 		current_page: Rc<Mutex<usize>>,
-		image_buffer: Rc<Mutex<Vec<ImageSurface>>>,
+		image_buffer: Rc<Mutex<Vec<BufferedImage>>>,
 		area: DrawingArea,
 		pack: &Box,
 	) {
@@ -557,10 +644,11 @@ impl Page {
 				let mut image_buffer = image_buffer.lock().unwrap();
 				image_buffer.clear();
 				for image in images.iter() {
-					let mut image = File::open(image).expect("Could not open file.");
+					let mut path = File::open(image.path.clone()).expect("Could not open file.");
 					let image_surface =
-						ImageSurface::create_from_png(&mut image).expect("Could not create ImageSurface.");
-					image_buffer.push(image_surface);
+						ImageSurface::create_from_png(&mut path).expect("Could not create ImageSurface.");
+					let buffered_image = BufferedImage::new(image_surface, image.position);
+					image_buffer.push(buffered_image);
 				}
 				*current_page = button_position as usize;
 				area.queue_draw();
