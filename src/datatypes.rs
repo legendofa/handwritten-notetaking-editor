@@ -260,12 +260,20 @@ impl DrawTool for LineTool {
 }
 
 #[derive(Clone, Debug)]
-pub struct Drag {}
+pub struct Drag {
+	previous_pen_is_active: bool,
+	previous_lines: Vec<Vec<Drawpoint>>,
+	starting_position: (f64, f64),
+}
 
 impl Drag {
 	pub fn new(current_draw_tool: Rc<Mutex<CurrentDrawTool>>, pack: &Box) -> Self {
 		let button = Button::with_label("Drag");
-		let draw_tool = Self {};
+		let draw_tool = Self {
+			previous_pen_is_active: false,
+			previous_lines: Vec::<Vec<Drawpoint>>::new(),
+			starting_position: (0.0, 0.0),
+		};
 		button.connect_clicked(move |_| {
 			*current_draw_tool.lock().unwrap() = CurrentDrawTool::Drag;
 		});
@@ -285,16 +293,31 @@ impl DrawTool for Drag {
 		_rgba: [f64; 4],
 	) {
 		if pen_is_active {
-			let (line_index, closest_point) =
+			let (line_index, _closest_point) =
 				Self::closest_point(Rc::clone(&pages), Rc::clone(&current_page), position);
 			let mut pages = pages.lock().unwrap();
 			let current_page = current_page.lock().unwrap();
 			let lines = &mut pages[*current_page].lines;
-			for mut point in &mut lines[line_index] {
-				point.position.0 = point.position.0 - closest_point.0 + position.0;
-				point.position.1 = point.position.1 - closest_point.1 + position.1;
+			if !self.previous_pen_is_active {
+				self.starting_position = position;
+				self.previous_lines = lines.clone();
+			}
+			let vector = (
+				position.0 - self.starting_position.0,
+				position.1 - self.starting_position.1,
+			);
+			println!(
+				"{:?}, {:?}, {:?}",
+				self.starting_position, vector, line_index
+			);
+			let line = &mut lines[line_index];
+			let previous_line = &mut self.previous_lines[line_index];
+			for (point, prev_point) in line.iter_mut().zip(previous_line) {
+				point.position.0 = prev_point.position.0 + vector.0;
+				point.position.1 = prev_point.position.1 + vector.1;
 			}
 		}
+		self.previous_pen_is_active = pen_is_active;
 	}
 }
 
@@ -337,7 +360,7 @@ impl RectangleSelection {
 				let current_draw_tool = current_draw_tool.lock().unwrap();
 				if *current_draw_tool == CurrentDrawTool::RectangleSelection {
 					let rectangle = this.rectangle.lock().unwrap();
-					cr.set_source_rgba(0.0,	0.0, 0.0, 1.0);
+					cr.set_source_rgba(0.0,	0.0, 0.0, 0.5);
 					for line in line_matrix.iter() {
 						cr.set_line_width(5.0);
 						cr.line_to(rectangle[line.0], rectangle[line.1]);
@@ -373,7 +396,7 @@ impl RectangleSelection {
 		}
 	}
 
-	fn update_rectangle(&mut self, lines: &mut Vec<Vec<Drawpoint>>, position: (f64, f64)) {
+	fn update_rectangle(&mut self, _lines: &mut Vec<Vec<Drawpoint>>, position: (f64, f64)) {
 		let mut rectangle = self.rectangle.lock().unwrap();
 		if self.starting_position.0 < position.0 {
 			rectangle[0] = self.starting_position.0;
@@ -411,6 +434,14 @@ impl RectangleSelection {
 			}
 		}
 	}
+
+	fn set_mode(&mut self) {
+		if self.is_in_rectangle(self.starting_position) {
+			self.mode = RectangleSelectionMode::Translation;
+		} else {
+			self.mode = RectangleSelectionMode::Selection;
+		}
+	}
 }
 
 impl DrawTool for RectangleSelection {
@@ -436,13 +467,7 @@ impl DrawTool for RectangleSelection {
 					*previous_rectangle = *rectangle;
 					self.selection.clear();
 				}
-				{
-					if self.is_in_rectangle(self.starting_position) {
-						self.mode = RectangleSelectionMode::Translation;
-					} else {
-						self.mode = RectangleSelectionMode::Selection;
-					}
-				}
+				self.set_mode();
 				self.update_selection(lines);
 			}
 			match self.mode {
