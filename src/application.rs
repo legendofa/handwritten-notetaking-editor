@@ -187,12 +187,13 @@ impl Application {
 				let mut images = images.lock().unwrap();
 				let mut image_buffer = this.image_buffer.lock().unwrap();
 				let initial_position = (20.0, 20.0);
-				images.push(crate::datatypes::Image::new(current_path.clone(), initial_position));
+				let image = Rc::new(Mutex::new(crate::datatypes::Image::new(current_path.clone(), initial_position)));
+				images.push(Rc::clone(&image));
 				println!("{:?}", images);
-				let mut image = File::open(current_path).expect("Could not open file.");
+				let mut file = File::open(current_path).expect("Could not open file.");
 				let image_surface =
-					ImageSurface::create_from_png(&mut image).expect("Could not create ImageSurface.");
-				let buffered_image = BufferedImage::new(image_surface, initial_position);
+					ImageSurface::create_from_png(&mut file).expect("Could not create ImageSurface.");
+				let buffered_image = BufferedImage::new(image_surface, Rc::clone(&image));
 				image_buffer.push(buffered_image);
 			})));
 		}));
@@ -271,10 +272,11 @@ impl Application {
 		cr.set_source_rgb(1.0, 1.0, 1.0);
 		cr.paint();
 		for buffered_image in image_buffer.iter() {
+			let image = buffered_image.image.lock().unwrap();
 			cr.set_source_surface(
 				&buffered_image.image_surface,
-				buffered_image.position.0,
-				buffered_image.position.1,
+				image.position.0,
+				image.position.1,
 			);
 			cr.paint();
 		}
@@ -317,12 +319,15 @@ impl Application {
 			undone_pages_history.clear();
 			let images = &mut pages[*current_page].images;
 			let images = images.lock().unwrap();
+			image_buffer.clear();
 			for image in images.iter() {
-				let image_position = image.position;
-				let mut image = File::open(image.path.clone()).expect("Could not open file.");
-				let image_surface = ImageSurface::create_from_png(&mut image)
-					.expect("Could not create ImageSurface.");
-				let buffered_image = BufferedImage::new(image_surface, image_position);
+				let image_surface = {
+					let image = image.lock().unwrap();
+					let mut path = File::open(image.path.clone()).expect("Could not open file.");
+					ImageSurface::create_from_png(&mut path)
+						.expect("Could not create ImageSurface.")
+				};
+				let buffered_image = BufferedImage::new(image_surface, Rc::clone(image));
 				image_buffer.push(buffered_image);
 			}
 		}
@@ -614,11 +619,10 @@ impl Application {
 			let color_preview = Label::new(None);
 			content_area.pack_start(&color_preview, false, false, 0);
 			for (i, scale) in scales.iter().enumerate() {
-				let rgba = rgba.lock().unwrap();
-				scale.set_value(rgba[i]);
+				scale.set_value(rgba.lock().unwrap()[i]);
 				content_area.add(scale);
 					scale.connect_change_value(clone!(@strong color_preview, @strong rgba => move |_, _, v| {
-						let mut rgba = rgba;
+						let mut rgba = rgba.lock().unwrap();
 						rgba[i] = v;
 						let rgba = Some(RGBA {red: rgba[0], green: rgba[1], blue: rgba[2], alpha: rgba[3]});
 						color_preview.override_background_color(StateFlags::NORMAL, rgba.as_ref());
