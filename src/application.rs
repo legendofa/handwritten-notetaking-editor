@@ -232,8 +232,6 @@ impl Application {
 			.tool_pack
 			.pack_start(&pen_size, true, true, 0);
 
-		self.manage_drawing_modes();
-
 		self.area
 			.connect_button_press_event(clone!(@strong self as this => move |_, _| {
 				let mut pages = this.pages.lock().unwrap();
@@ -257,6 +255,8 @@ impl Application {
 				this.context_drawing_mechanics(cr);
 				Inhibit(false)
 			}));
+
+		self.manage_drawing_modes();
 
 		self.position_pointer();
 	}
@@ -457,9 +457,9 @@ impl Application {
 		remove_page.connect_clicked(clone!(@strong self as this => move |_| {
 			let mut pages = this.pages.lock().unwrap();
 			if pages.len() > 1 {
-				let current_page = *this.current_page.lock().unwrap();
-				pages.remove(current_page);
-				*this.current_page.lock().unwrap() = 0;
+				let mut current_page = this.current_page.lock().unwrap();
+				pages.remove(*current_page);
+				*current_page = 0;
 				let page_buttons = this.application_layout.page_pack.get_children();
 				let last_page_button = &page_buttons[page_buttons.len() - 5];
 				this.application_layout.page_pack.remove(last_page_button);
@@ -527,6 +527,7 @@ impl Application {
 		let rectangle_selection = Rc::new(Mutex::new(RectangleSelection::new(
 			Rc::clone(&self.drawing_information.current_draw_tool),
 			&self.application_layout.tool_pack,
+			self.area.clone(),
 		)));
 		let clear = Rc::new(Mutex::new(Clear::new(
 			Rc::clone(&self.drawing_information.current_draw_tool),
@@ -544,10 +545,10 @@ impl Application {
 				CurrentDrawTool::RectangleSelection => Rc::clone(&rectangle_selection) as _,
 				CurrentDrawTool::Clear => Rc::clone(&clear) as _,
 			};
-			let rgba = *this.drawing_information.rgba.lock().unwrap();
-			let pen_size = *this.drawing_information.pen_size.lock().unwrap();
-			let pen_is_active = *this.drawing_information.pen_is_active.lock().unwrap();
-			active_draw_tool.lock().unwrap().manipulate(Rc::clone(&this.pages), Rc::clone(&this.current_page), e.get_position(), pen_size, pen_is_active, rgba);
+			let rgba = this.drawing_information.rgba.lock().unwrap();
+			let pen_size = this.drawing_information.pen_size.lock().unwrap();
+			let pen_is_active = this.drawing_information.pen_is_active.lock().unwrap();
+			active_draw_tool.lock().unwrap().manipulate(Rc::clone(&this.pages), Rc::clone(&this.current_page), e.get_position(), *pen_size, *pen_is_active, *rgba);
 			this.area.queue_draw();
 			Inhibit(false)
 		}));
@@ -605,7 +606,7 @@ impl Application {
 			let color_preview = Label::new(None);
 			content_area.pack_start(&color_preview, false, false, 0);
 			for (i, scale) in scales.iter().enumerate() {
-				let rgba = *rgba.lock().unwrap();
+				let rgba = rgba.lock().unwrap();
 				scale.set_value(rgba[i]);
 				content_area.add(scale);
 					scale.connect_change_value(clone!(@strong color_preview, @strong rgba => move |_, _, v| {
@@ -642,9 +643,9 @@ impl Application {
 
 		self.area
 			.connect_draw(clone!(@strong self as this => move |_, cr| {
-				let cursor_position = *this.drawing_information.cursor_position.lock().unwrap();
+				let cursor_position = this.drawing_information.cursor_position.lock().unwrap();
 				if cursor_position.is_some() {
-					let pen_size = *this.drawing_information.pen_size.lock().unwrap();
+					let pen_size = this.drawing_information.pen_size.lock().unwrap();
 					let rgba = *this.drawing_information.rgba.lock().unwrap();
 					cr.set_source_rgba(
 						rgba[0],
@@ -653,7 +654,7 @@ impl Application {
 						rgba[3],
 					);
 					cr.set_line_width(5.0);
-					cr.arc(cursor_position.unwrap().0, cursor_position.unwrap().1, pen_size / 2.0, 0.0, PI * 2.0);
+					cr.arc(cursor_position.unwrap().0, cursor_position.unwrap().1, *pen_size / 2.0, 0.0, PI * 2.0);
 					cr.stroke();
 				}
 				Inhibit(false)
