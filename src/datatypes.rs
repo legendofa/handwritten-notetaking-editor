@@ -9,10 +9,10 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Mutex;
 
-pub trait Function {
-	fn run(&self);
-}
-
+/// Enum representation of possible tools that a user can directly apply to the canvas.
+///
+/// In every `new()` function of any `DrawTool` the `gtk::Button` is connected on click to set the current_draw_tool to one of the enum values.
+/// This is matched to the corresponding DrawTool in the `Application.manage_drawing_modes()` function.
 #[derive(PartialEq, Clone, Debug)]
 pub enum CurrentDrawTool {
 	Pencil,
@@ -24,7 +24,13 @@ pub enum CurrentDrawTool {
 	Clear,
 }
 
+/// Trait for a tool that can directly manipulate the canvas.
+///
+/// All implementations have to get a similarly named enum value in `CurrentDrawTool`.
 pub trait DrawTool {
+	/// This function is called in every time step that the user interacts with the canvas.
+	///
+	/// Lines and images can be manipulated depending on the `position` input.
 	fn manipulate(
 		&mut self,
 		pages: Rc<Mutex<Vec<Page>>>,
@@ -36,6 +42,7 @@ pub trait DrawTool {
 		rgba: [f64; 4],
 	);
 
+	/// Misc function for finding the `closest_position` in all `lines` of the `current_page`.
 	fn closest_line_position(
 		pages: Rc<Mutex<Vec<Page>>>,
 		current_page: Rc<Mutex<usize>>,
@@ -49,7 +56,7 @@ pub trait DrawTool {
 		let lines = &mut pages[*current_page].lines;
 		let mut lowest_distance = f64::INFINITY;
 		let mut line_index = None;
-		let mut closest_point = None;
+		let mut closest_position = None;
 		for (i, line) in lines.iter().enumerate() {
 			for point in line.iter() {
 				let distance = ((point.position.0 - position.0).powf(2.0)
@@ -58,16 +65,17 @@ pub trait DrawTool {
 				if distance < lowest_distance {
 					lowest_distance = distance;
 					line_index = Some(i);
-					closest_point = Some(point.position);
+					closest_position = Some(point.position);
 				};
 			}
 		}
 		let line_index = line_index?;
-		let closest_point = closest_point?;
-		Some((line_index, closest_point))
+		let closest_position = closest_position?;
+		Some((line_index, closest_position))
 	}
 }
 
+/// Basic `DrawTool` to create lines.
 #[derive(Clone, Debug)]
 pub struct Pencil {}
 
@@ -106,6 +114,7 @@ impl DrawTool for Pencil {
 	}
 }
 
+/// Basic `DrawTool` to erase Drawpoints in lines and split where the `Drawpoint` was deleted.
 #[derive(Clone, Debug)]
 pub struct Eraser {}
 
@@ -163,6 +172,7 @@ impl DrawTool for Eraser {
 	}
 }
 
+/// Erases the whole `line` on contact with the tool.
 #[derive(Clone, Debug)]
 pub struct LineEraser {}
 
@@ -208,6 +218,9 @@ impl DrawTool for LineEraser {
 	}
 }
 
+/// Draws straight lines from the drag `starting_position` to the pointer `position`.
+///
+/// As many Drawpoints are inserted depending on how long the line is.
 #[derive(Clone, Debug)]
 pub struct LineTool {}
 
@@ -264,6 +277,7 @@ impl DrawTool for LineTool {
 	}
 }
 
+/// Enum representation of possible `Drag` tool modes.
 #[derive(Clone, Debug)]
 pub enum DragMode {
 	Line,
@@ -271,6 +285,9 @@ pub enum DragMode {
 	None,
 }
 
+/// `Drag` tool for draging the closest line/image on at a time.
+///
+/// Previous values have to be saved before translating the positions for correct calculations.
 #[derive(Clone, Debug)]
 pub struct Drag {
 	starting_position: (f64, f64),
@@ -299,6 +316,7 @@ impl Drag {
 		draw_tool
 	}
 
+	/// Misc function for finding the `closest_position` in all `images` in `current_page`, in this case represented by `image_buffer`.
 	pub fn closest_image(
 		image_buffer: Rc<Mutex<Vec<BufferedImage>>>,
 		position: (f64, f64),
@@ -323,6 +341,7 @@ impl Drag {
 		Some((buffered_image_index, closest_point))
 	}
 
+	/// Calculates and sets `DragMode` for `self`, depending on pointer `position`.
 	fn set_mode(
 		&mut self,
 		pages: Rc<Mutex<Vec<Page>>>,
@@ -357,6 +376,7 @@ impl Drag {
 			}
 	}
 
+	/// Translates `line` positions depending on drag `vector`.
 	fn line_drag(
 		&mut self,
 		pages: Rc<Mutex<Vec<Page>>>,
@@ -378,6 +398,7 @@ impl Drag {
 		}
 	}
 
+	/// Translates `image` position depending on drag `vector`.
 	fn buffered_image_drag(
 		&mut self,
 		image_buffer: Rc<Mutex<Vec<BufferedImage>>>,
@@ -455,12 +476,16 @@ impl DrawTool for Drag {
 	}
 }
 
+/// Enum representation of possible `RectangleSelection` tool modes.
 #[derive(Clone, Debug)]
 enum RectangleSelectionMode {
 	Selection,
 	Translation,
 }
 
+/// Line elements can be selected by grouping them in a rectangle and then be repositioned.
+///
+/// Previous values have to be saved before translating the positions for correct calculations.
 #[derive(Clone, Debug)]
 pub struct RectangleSelection {
 	rectangle: Rc<Mutex<[f64; 4]>>,
@@ -512,6 +537,9 @@ impl RectangleSelection {
 		draw_tool
 	}
 
+	/// Checks if a `position` is in `self.rectangle`.
+	///
+	/// Edge cases are excluded.
 	fn is_in_rectangle(&self, position: (f64, f64)) -> bool {
 		let rectangle = self.rectangle.lock().unwrap();
 		position.0 > rectangle[0]
@@ -520,6 +548,7 @@ impl RectangleSelection {
 			&& position.1 < rectangle[3]
 	}
 
+	/// Updates `self.selection` set depending on whether or not one of the `Drawpoint` positions is in `self.rectangle`.
 	fn update_selection(&mut self, lines: &Vec<Vec<Drawpoint>>) {
 		for (i, line) in lines.iter().enumerate() {
 			for point in line.iter() {
@@ -530,7 +559,8 @@ impl RectangleSelection {
 		}
 	}
 
-	fn update_rectangle(&mut self, _lines: &mut Vec<Vec<Drawpoint>>, position: (f64, f64)) {
+	/// Updates `self.rectangle` depending on pointer `position` and `self.starting_position`.
+	fn update_rectangle(&mut self, position: (f64, f64)) {
 		let mut rectangle = self.rectangle.lock().unwrap();
 		if self.starting_position.0 < position.0 {
 			rectangle[0] = self.starting_position.0;
@@ -548,6 +578,7 @@ impl RectangleSelection {
 		}
 	}
 
+	/// Translates `line` positions depending on the drag `vector`.
 	fn translate_positions(&mut self, lines: &mut Vec<Vec<Drawpoint>>, position: (f64, f64)) {
 		let mut rectangle = self.rectangle.lock().unwrap();
 		let previous_rectangle = self.previous_rectangle.lock().unwrap();
@@ -569,6 +600,7 @@ impl RectangleSelection {
 		}
 	}
 
+	/// Calculates and sets `RectangleSelectionMode` for `self`, depending on if `self.starting_position` is in `self.rectangle`.
 	fn set_mode(&mut self) {
 		if self.is_in_rectangle(self.starting_position) {
 			self.mode = RectangleSelectionMode::Translation;
@@ -607,7 +639,7 @@ impl DrawTool for RectangleSelection {
 			}
 			match self.mode {
 				RectangleSelectionMode::Translation => self.translate_positions(lines, position),
-				RectangleSelectionMode::Selection => self.update_rectangle(lines, position),
+				RectangleSelectionMode::Selection => self.update_rectangle(position),
 			}
 		} else {
 			if self.previous_pen_is_active {
@@ -622,6 +654,9 @@ impl DrawTool for RectangleSelection {
 	}
 }
 
+/// Removes all `lines` on `current_page`.
+///
+/// Images are excluded.
 #[derive(Clone, Debug)]
 pub struct Clear {}
 
@@ -655,6 +690,7 @@ impl DrawTool for Clear {
 	}
 }
 
+/// Serializable image datatype.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Image {
 	pub path: PathBuf,
@@ -667,6 +703,7 @@ impl Image {
 	}
 }
 
+/// Blueprint for an image instance of type `gtk::ImageSurface`.
 #[derive(Clone, Debug)]
 pub struct BufferedImage {
 	pub image_surface: ImageSurface,
@@ -682,6 +719,7 @@ impl BufferedImage {
 	}
 }
 
+/// Serializable page datatype that contains all `lines` and `images` of the current page.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Page {
 	pub lines: Vec<Vec<Drawpoint>>,
@@ -703,6 +741,10 @@ impl Page {
 		page
 	}
 
+	/// Places a button in the application that shows the page on click.
+	///
+	/// Connects `self` to a `gtk::Box` with a `gtk::Button` that manipulates `current_page` and `image_buffer`.
+	/// When loading the page, `image_buffer` is updated based on the page images.
 	pub fn connect_pack(
 		&self,
 		current_page: Rc<Mutex<usize>>,
@@ -737,6 +779,7 @@ impl Page {
 	}
 }
 
+/// Serializable point that can be drawn on the canvas in a `line`.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Drawpoint {
 	pub position: (f64, f64),

@@ -13,6 +13,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Mutex;
 
+/// Contains all top level groups of GTK widgets.
 #[derive(Clone, Debug)]
 struct ApplicationLayout {
 	pub vertical_pack_0: Box,
@@ -32,6 +33,7 @@ impl ApplicationLayout {
 	}
 }
 
+/// Contains information associated with direct drawing.
 #[derive(Clone, Debug)]
 struct DrawingInformation {
 	rgba: Rc<Mutex<[f64; 4]>>,
@@ -53,6 +55,7 @@ impl DrawingInformation {
 	}
 }
 
+/// Implements Handwritten Notetaking Editor's setup, data and logic.
 #[derive(Clone, Debug)]
 pub struct Application {
 	current_page: Rc<Mutex<usize>>,
@@ -68,6 +71,7 @@ pub struct Application {
 }
 
 impl Application {
+	/// Initializes all necessary values and instantiates the `gtk::Application`.
 	pub fn new(gtk_application: &gtk::Application) -> Self {
 		let window = gtk::ApplicationWindow::new(gtk_application);
 		let current_page = Rc::new(Mutex::new(0));
@@ -101,6 +105,9 @@ impl Application {
 		application
 	}
 
+	/// Sets basic `self.window` variables and shows the `gtk::ApplicationWindow`.
+	///
+	/// Invokes `self.application_layout()`.
 	pub fn build_ui(&self) {
 		self.window.set_title("Handwritten notetaking editor");
 		self.window.set_border_width(10);
@@ -112,6 +119,9 @@ impl Application {
 		self.window.show_all();
 	}
 
+	/// Composes all top level groups to `self.window`.
+	///
+	/// Invokes `self.drawing_mechanics()`.
 	fn application_layout(&self, window: &ApplicationWindow) {
 		let menu_bar = self.menu_bar();
 
@@ -145,6 +155,7 @@ impl Application {
 		window.add(&self.application_layout.vertical_pack_0);
 	}
 
+	/// Composes a `gtk::MenuBar` with basic export and import functionality.
 	fn menu_bar(&self) -> MenuBar {
 		let menu = Menu::new();
 		let menu_bar = MenuBar::new();
@@ -215,6 +226,11 @@ impl Application {
 		menu_bar
 	}
 
+	/// Withholds all drawing specific methods and variables.
+	///
+	/// Connects basic canvas input and drawing.
+	///
+	/// Invokes `self.add_page()`, `self.remove_page()`, `self.undo_redo()`, `self.manage_drawing_modes()`, `self.position_pointer()`.
 	fn drawing_mechanics(&self) {
 		self.add_page();
 		self.remove_page();
@@ -264,6 +280,7 @@ impl Application {
 		self.position_pointer();
 	}
 
+	/// Specifies how a context is composed out of `self`.
 	fn context_drawing_mechanics(&self, cr: &Context) {
 		let mut pages = self.pages.lock().unwrap();
 		let current_page = self.current_page.lock().unwrap();
@@ -295,6 +312,9 @@ impl Application {
 		}
 	}
 
+	/// Saves `self` in a JSON formatted file.
+	///
+	/// The file path is declared by `path_puf`.
 	fn save_file(&self, path_puf: &PathBuf) {
 		let pages = self.pages.lock().unwrap();
 		let serialized = serde_json::to_string(&pages.clone()).expect("Could not serialize pages.");
@@ -302,6 +322,9 @@ impl Application {
 		file.write_all(serialized.as_bytes());
 	}
 
+	/// Loads `self` from a JSON formatted file.
+	///
+	/// The file path is declared by `path_puf`.
 	fn load_file(&self, path_puf: &PathBuf) {
 		{
 			let mut pages = self.pages.lock().unwrap();
@@ -334,6 +357,7 @@ impl Application {
 		self.reload_page_pack();
 	}
 
+	/// Connects a `gtk::FileChooserNative` instance with an `action`.
 	fn connect_file_dialog(
 		&self,
 		file_chooser_action: FileChooserAction,
@@ -358,6 +382,8 @@ impl Application {
 		file_chooser.run();
 	}
 
+	/// Connects a `gtk::FileChooserNative` instance with an `action`.
+	/// If `self.current_path` is not already specified, the `action` is executed.
 	fn connect_path_or_file_dialog(
 		&self,
 		file_chooser_action: FileChooserAction,
@@ -372,6 +398,7 @@ impl Application {
 		}
 	}
 
+	/// Reloads `self.application_layout.page_pack` depending on `self`.
 	fn reload_page_pack(&self) {
 		for button in self.application_layout.page_pack.get_children() {
 			self.application_layout.page_pack.remove(&button);
@@ -391,6 +418,9 @@ impl Application {
 		self.application_layout.page_pack.show_all();
 	}
 
+	/// Implements basic version control.
+	///
+	/// A version is saved after each interaction with a `DrawTool`.
 	fn undo_redo(&self) {
 		self.area
 			.connect_button_release_event(clone!(@strong self as this => move |_, _| {
@@ -447,6 +477,9 @@ impl Application {
 			.pack_start(&redo, false, false, 0);
 	}
 
+	/// Pages can be added.
+	///
+	/// Connects `gtk::Button` to add a page on click.
 	fn add_page(&self) {
 		let add_page = Button::with_label("+");
 		add_page.connect_clicked(clone!(@strong self as this => move |_| {
@@ -465,6 +498,9 @@ impl Application {
 			.pack_start(&add_page, false, false, 0);
 	}
 
+	/// Pages can be removed.
+	///
+	/// Connects `gtk::Button` to remove the `self.current_page` on click.
 	fn remove_page(&self) {
 		let remove_page = Button::with_label("-");
 		remove_page.connect_clicked(clone!(@strong self as this => move |_| {
@@ -484,6 +520,9 @@ impl Application {
 			.pack_end(&remove_page, false, false, 0);
 	}
 
+	/// Pages can be moved.
+	///
+	/// Connects buttons to move the `self.current_page` up and down.
 	fn move_page(&self) {
 		let move_up = Button::with_label("↓");
 		move_up.connect_clicked(clone!(@strong self as this => move |_| {
@@ -514,6 +553,11 @@ impl Application {
 			.pack_end(&move_down, false, false, 0);
 	}
 
+	/// Ensures correct interaction based on `self.drawing_information.current_draw_tool`.
+	///
+	/// Instantiates all `DrawTool` implementations.
+	///
+	/// Invokes `self.color_widget()`.
 	fn manage_drawing_modes(&self) {
 		self.color_widget();
 
@@ -567,6 +611,9 @@ impl Application {
 		}));
 	}
 
+	/// Composes `color_widget` with color selection dialog and predefined colors.
+	///
+	/// Adds `color_widget` to `self.application_layout.tool_pack`.
 	fn color_widget(&self) {
 		let color_widget = Box::new(Orientation::Horizontal, 0);
 
@@ -641,6 +688,7 @@ impl Application {
 			.pack_start(&color_widget, false, false, 0);
 	}
 
+	/// Displays the position pointer on the canvas in the current color.
 	fn position_pointer(&self) {
 		self.area.connect_motion_notify_event(
 			clone!(@strong self.drawing_information.cursor_position as cursor_position => move |_, e| {
@@ -676,6 +724,7 @@ impl Application {
 			}));
 	}
 
+	/// Connects a `gtk::FileChooserNative` instance to export the current `Page` to the chosen .png file.
 	fn export_png(&self) {
 		self.connect_file_dialog(
 			FileChooserAction::Save,
