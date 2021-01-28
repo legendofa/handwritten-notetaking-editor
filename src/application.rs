@@ -593,7 +593,10 @@ impl Application {
 				blue: predefined_rgba[2],
 				alpha: predefined_rgba[3],
 			});
-			select_color.override_background_color(StateFlags::NORMAL, predefined_rgba.as_ref());
+			let color_preview = Label::new(None);
+			color_preview.set_size_request(20, 20);
+			color_preview.override_background_color(StateFlags::NORMAL, predefined_rgba.as_ref());
+			select_color.set_image(Some(&color_preview));
 			color_widget.pack_start(&select_color, false, false, 0);
 		}
 
