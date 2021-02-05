@@ -80,12 +80,14 @@ impl Application {
 		area.add_events(EventMask::ALL_EVENTS_MASK);
 		let drawing_information = DrawingInformation::new();
 		let image_buffer = Rc::new(Mutex::new(Vec::<BufferedImage>::new()));
-		let pages = Rc::new(Mutex::new(vec![Page::new(
+		let pages = Rc::new(Mutex::new(Vec::new()));
+		pages.lock().unwrap().push(Page::new(
+			Rc::clone(&pages),
 			Rc::clone(&current_page),
 			Rc::clone(&image_buffer),
 			area.clone(),
 			&application_layout.page_pack,
-		)]));
+		));
 		let pages_history = Rc::new(Mutex::new(vec![pages.lock().unwrap().clone()]));
 		let undone_pages_history = Rc::new(Mutex::new(Vec::<Vec<Page>>::new()));
 		let current_path = Rc::new(Mutex::new(None));
@@ -327,34 +329,44 @@ impl Application {
 	/// The file path is declared by `path_puf`.
 	fn load_file(&self, path_puf: &PathBuf) {
 		{
-			let mut pages = self.pages.lock().unwrap();
-			let mut current_page = self.current_page.lock().unwrap();
-			let mut image_buffer = self.image_buffer.lock().unwrap();
-			let mut pages_history = self.pages_history.lock().unwrap();
-			let mut undone_pages_history = self.undone_pages_history.lock().unwrap();
-			let mut file = File::open(path_puf).expect("Could not open file.");
-			let mut serialized = std::string::String::new();
-			file.read_to_string(&mut serialized)
-				.expect("Could not read to string.");
-			*pages = serde_json::from_str(&serialized).expect("Invalid format.");
-			*current_page = 0;
-			*pages_history = vec![pages.clone()];
-			undone_pages_history.clear();
-			let images = &mut pages[*current_page].images;
-			let images = images.lock().unwrap();
-			image_buffer.clear();
-			for image in images.iter() {
-				let image_surface = {
-					let image = image.lock().unwrap();
-					let mut path = File::open(image.path.clone()).expect("Could not open file.");
-					ImageSurface::create_from_png(&mut path)
-						.expect("Could not create ImageSurface.")
-				};
-				let buffered_image = BufferedImage::new(image_surface, Rc::clone(image));
-				image_buffer.push(buffered_image);
+			{
+				let mut pages = self.pages.lock().unwrap();
+				let mut current_page = self.current_page.lock().unwrap();
+				let mut pages_history = self.pages_history.lock().unwrap();
+				let mut undone_pages_history = self.undone_pages_history.lock().unwrap();
+				let mut file = File::open(path_puf).expect("Could not open file.");
+				let mut serialized = std::string::String::new();
+				file.read_to_string(&mut serialized)
+					.expect("Could not read to string.");
+				*pages = serde_json::from_str(&serialized).expect("Invalid format.");
+				*current_page = 0;
+				*pages_history = vec![pages.clone()];
+				undone_pages_history.clear();
 			}
+			self.reload_image_buffer();
 		}
 		self.reload_page_pack();
+	}
+
+	/// Updates the currently displayed images.
+	///
+	/// Reloads `self.image_buffer` depending on `self`.
+	fn reload_image_buffer(&self) {
+		let mut pages = self.pages.lock().unwrap();
+		let current_page = self.current_page.lock().unwrap();
+		let mut image_buffer = self.image_buffer.lock().unwrap();
+		let images = &mut pages[*current_page].images;
+		let images = images.lock().unwrap();
+		image_buffer.clear();
+		for image in images.iter() {
+			let image_surface = {
+				let image = image.lock().unwrap();
+				let mut path = File::open(image.path.clone()).expect("Could not open file.");
+				ImageSurface::create_from_png(&mut path).expect("Could not create ImageSurface.")
+			};
+			let buffered_image = BufferedImage::new(image_surface, Rc::clone(image));
+			image_buffer.push(buffered_image);
+		}
 	}
 
 	/// Connects a `gtk::FileChooserNative` instance with an `action`.
@@ -406,6 +418,7 @@ impl Application {
 		let pages = self.pages.lock().unwrap();
 		for page in pages.iter() {
 			page.connect_pack(
+				Rc::clone(&self.pages),
 				Rc::clone(&self.current_page),
 				Rc::clone(&self.image_buffer),
 				self.area.clone(),
@@ -484,6 +497,7 @@ impl Application {
 		let add_page = Button::with_label("+");
 		add_page.connect_clicked(clone!(@strong self as this => move |_| {
 			let page = Page::new(
+				Rc::clone(&this.pages),
 				Rc::clone(&this.current_page),
 				Rc::clone(&this.image_buffer),
 				this.area.clone(),

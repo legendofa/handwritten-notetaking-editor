@@ -290,6 +290,7 @@ pub enum DragMode {
 /// Previous values have to be saved before translating the positions for correct calculations.
 #[derive(Clone, Debug)]
 pub struct Drag {
+	selection_index: usize,
 	starting_position: (f64, f64),
 	previous_pen_is_active: bool,
 	previous_lines: Vec<Vec<Drawpoint>>,
@@ -302,6 +303,7 @@ impl Drag {
 	pub fn new(current_draw_tool: Rc<Mutex<CurrentDrawTool>>, pack: &Box) -> Self {
 		let button = Button::with_label("Drag");
 		let draw_tool = Self {
+			selection_index: 0,
 			starting_position: (0.0, 0.0),
 			previous_pen_is_active: false,
 			previous_lines: Vec::<Vec<Drawpoint>>::new(),
@@ -326,19 +328,29 @@ impl Drag {
 		let mut buffered_image_index = None;
 		let mut closest_point = None;
 		for (i, buffered_image) in image_buffer.iter().enumerate() {
-			let image = buffered_image.image.lock().unwrap();
-			let distance = ((image.position.0 - position.0).powf(2.0)
-				+ (image.position.1 - position.1).powf(2.0))
+			let handle_position = Self::get_handle_position(buffered_image);
+			let distance = ((handle_position.0 - position.0).powf(2.0)
+				+ (handle_position.1 - position.1).powf(2.0))
 			.sqrt();
 			if distance < lowest_distance {
 				lowest_distance = distance;
 				buffered_image_index = Some(i);
-				closest_point = Some(image.position);
+				closest_point = Some(handle_position);
 			};
 		}
 		let buffered_image_index = buffered_image_index?;
 		let closest_point = closest_point?;
 		Some((buffered_image_index, closest_point))
+	}
+
+	fn get_handle_position(buffered_image: &BufferedImage) -> (f64, f64) {
+		let image = buffered_image.image.lock().unwrap();
+		let width = buffered_image.image_surface.get_width() as f64;
+		let height = buffered_image.image_surface.get_height() as f64;
+		(
+			image.position.0 + (width - image.position.0) / 2.0,
+			image.position.1 + (height - image.position.1) / 2.0,
+		)
 	}
 
 	/// Calculates and sets `DragMode` for `self`, depending on pointer `position`.
@@ -411,9 +423,13 @@ impl Drag {
 			self.previous_buffered_image_position = closest_buffered_image_position;
 		}
 		let buffered_image = &mut image_buffer[buffered_image_index];
+		let width = buffered_image.image_surface.get_width() as f64;
+		let height = buffered_image.image_surface.get_height() as f64;
 		let mut image = buffered_image.image.lock().unwrap();
-		image.position.0 = self.previous_buffered_image_position.0 + vector.0;
-		image.position.1 = self.previous_buffered_image_position.1 + vector.1;
+		image.position.0 =
+			self.previous_buffered_image_position.0 + vector.0 - (width as f64) / 2.0;
+		image.position.1 =
+			self.previous_buffered_image_position.1 + vector.1 - (height as f64) / 2.0;
 	}
 }
 
@@ -446,25 +462,31 @@ impl DrawTool for Drag {
 			);
 			match self.mode {
 				DragMode::Line => {
-					let (line_index, _) = Self::closest_line_position(
-						Rc::clone(&pages),
-						Rc::clone(&current_page),
-						position,
-					)
-					.unwrap();
+					if !self.previous_pen_is_active {
+						self.selection_index = Self::closest_line_position(
+							Rc::clone(&pages),
+							Rc::clone(&current_page),
+							position,
+						)
+						.unwrap()
+						.0;
+					}
 					self.line_drag(
 						Rc::clone(&pages),
 						Rc::clone(&current_page),
-						line_index,
+						self.selection_index,
 						vector,
-					)
+					);
 				}
 				DragMode::BufferedImage => {
 					let (buffered_image_index, closest_buffered_image_position) =
 						Self::closest_image(Rc::clone(&image_buffer), position).unwrap();
+					if !self.previous_pen_is_active {
+						self.selection_index = buffered_image_index;
+					}
 					self.buffered_image_drag(
 						Rc::clone(&image_buffer),
-						buffered_image_index,
+						self.selection_index,
 						closest_buffered_image_position,
 						vector,
 					)
@@ -728,6 +750,7 @@ pub struct Page {
 
 impl Page {
 	pub fn new(
+		pages: Rc<Mutex<Vec<Page>>>,
 		current_page: Rc<Mutex<usize>>,
 		image_buffer: Rc<Mutex<Vec<BufferedImage>>>,
 		area: DrawingArea,
@@ -737,7 +760,7 @@ impl Page {
 			lines: Vec::<Vec<Drawpoint>>::new(),
 			images: Rc::new(Mutex::new(Vec::<Rc<Mutex<Image>>>::new())),
 		};
-		page.connect_pack(current_page, image_buffer, area, pack);
+		page.connect_pack(pages, current_page, image_buffer, area, pack);
 		page
 	}
 
@@ -747,6 +770,7 @@ impl Page {
 	/// When loading the page, `image_buffer` is updated based on the page images.
 	pub fn connect_pack(
 		&self,
+		pages: Rc<Mutex<Vec<Page>>>,
 		current_page: Rc<Mutex<usize>>,
 		image_buffer: Rc<Mutex<Vec<BufferedImage>>>,
 		area: DrawingArea,
@@ -755,27 +779,43 @@ impl Page {
 		let button = Button::with_label("Page");
 		pack.pack_start(&button, false, false, 0);
 		button.connect_clicked(
-			clone!(@strong self as this, @strong image_buffer, @strong pack, @strong button => move |_| {
-				let button_position = pack.get_child_position(&button);
-				let mut current_page = current_page.lock().unwrap();
-				let mut images = this.images.lock().unwrap();
-				let mut image_buffer = image_buffer.lock().unwrap();
-				image_buffer.clear();
-				for image in images.iter_mut() {
-					let image_surface = {
-						let image = image.lock().unwrap();
-						let mut path = File::open(image.path.clone()).expect("Could not open file.");
-						ImageSurface::create_from_png(&mut path).expect("Could not create ImageSurface.")
-					};
-					let buffered_image = BufferedImage::new(image_surface, Rc::clone(image));
-					image_buffer.push(buffered_image);
+			clone!(@strong self as this, @strong pages, @strong current_page, @strong image_buffer, @strong pack, @strong button => move |_| {
+				{
+					let button_position = pack.get_child_position(&button);
+					let mut current_page = current_page.lock().unwrap();
+					*current_page = button_position as usize;
 				}
-				*current_page = button_position as usize;
+				Self::reload_image_buffer(Rc::clone(&pages), Rc::clone(&current_page), Rc::clone(&image_buffer));
 				area.queue_draw();
 			}),
 		);
 		let button_position = pack.get_child_position(&button);
 		pack.set_child_position(&button, button_position - 4);
+	}
+
+	/// Updates the currently displayed images.
+	///
+	/// Reloads `self.image_buffer` depending on `self`.
+	fn reload_image_buffer(
+		pages: Rc<Mutex<Vec<Page>>>,
+		current_page: Rc<Mutex<usize>>,
+		image_buffer: Rc<Mutex<Vec<BufferedImage>>>,
+	) {
+		let mut pages = pages.lock().unwrap();
+		let current_page = current_page.lock().unwrap();
+		let mut image_buffer = image_buffer.lock().unwrap();
+		let images = &mut pages[*current_page].images;
+		let images = images.lock().unwrap();
+		image_buffer.clear();
+		for image in images.iter() {
+			let image_surface = {
+				let image = image.lock().unwrap();
+				let mut path = File::open(image.path.clone()).expect("Could not open file.");
+				ImageSurface::create_from_png(&mut path).expect("Could not create ImageSurface.")
+			};
+			let buffered_image = BufferedImage::new(image_surface, Rc::clone(image));
+			image_buffer.push(buffered_image);
+		}
 	}
 }
 
