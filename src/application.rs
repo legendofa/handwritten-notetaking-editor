@@ -616,6 +616,7 @@ impl Application {
 				CurrentDrawTool::RectangleSelection => Rc::clone(&rectangle_selection) as _,
 				CurrentDrawTool::Clear => Rc::clone(&clear) as _,
 			};
+			println!("{:?}", e.get_axis(AxisUse::Pressure).unwrap_or(0.0));
 			let rgba = this.drawing_information.rgba.lock().unwrap();
 			let pen_size = this.drawing_information.pen_size.lock().unwrap();
 			let pen_is_active = this.drawing_information.pen_is_active.lock().unwrap();
