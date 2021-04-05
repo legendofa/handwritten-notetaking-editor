@@ -76,7 +76,12 @@ impl Application {
 		let window = gtk::ApplicationWindow::new(gtk_application);
 		let current_page = Rc::new(Mutex::new(0));
 		let application_layout = ApplicationLayout::new();
-		let area = DrawingArea::new();
+		let area = DrawingAreaBuilder::new()
+			.halign(Align::Center)
+			.valign(Align::Center)
+			.width_request(1920)
+			.height_request(1080)
+			.build();
 		area.add_events(EventMask::ALL_EVENTS_MASK);
 		let drawing_information = DrawingInformation::new();
 		let image_buffer = Rc::new(Mutex::new(Vec::<BufferedImage>::new()));
@@ -157,10 +162,17 @@ impl Application {
 		window.add(&self.application_layout.vertical_pack_0);
 	}
 
-	/// Composes a `gtk::MenuBar` with basic export and import functionality.
+	/// Composes a `gtk::MenuBar` with basic functionality.
 	fn menu_bar(&self) -> MenuBar {
-		let menu = Menu::new();
 		let menu_bar = MenuBar::new();
+		self.file_menu(&menu_bar);
+		self.page_menu(&menu_bar);
+		menu_bar
+	}
+
+	/// Composes a file menu with basic export and import functionality.
+	fn file_menu(&self, menu_bar: &MenuBar) {
+		let file_menu = Menu::new();
 		let file = MenuItem::with_label("File");
 		let open_file = MenuItem::new();
 		open_file.add(&Label::new(Some("Open...")));
@@ -217,15 +229,80 @@ impl Application {
 			this.export_png();
 		}));
 
-		menu.append(&open_file);
-		menu.append(&save_file);
-		menu.append(&save_as_file);
-		menu.append(&import_png);
-		menu.append(&export_png);
-		file.set_submenu(Some(&menu));
+		file_menu.append(&open_file);
+		file_menu.append(&save_file);
+		file_menu.append(&save_as_file);
+		file_menu.append(&import_png);
+		file_menu.append(&export_png);
+		file.set_submenu(Some(&file_menu));
 		menu_bar.append(&file);
+	}
 
-		menu_bar
+	/// Composes a page menu with page layouting settings.
+	fn page_menu(&self, menu_bar: &MenuBar) {
+		let page_menu = Menu::new();
+		let page = MenuItem::with_label("Page");
+		let change_canvas_size = MenuItem::new();
+		change_canvas_size.add(&Label::new(Some("Change canvas size")));
+
+		change_canvas_size.connect_activate(clone!(@strong self as this => move |_| {
+			let dialog = Dialog::with_buttons(
+				Some("Colors"),
+				Some(&this.window.clone()),
+				DialogFlags::DESTROY_WITH_PARENT,
+				&[("Close", ResponseType::Close)],
+			);
+			dialog.set_default_response(ResponseType::Close);
+			let content_area = dialog.get_content_area();
+
+			let width_label = Label::new(Some("Width"));
+			let height_label = Label::new(Some("Height"));
+			let width_entry = Entry::new();
+			let height_entry = Entry::new();
+			content_area.pack_start(&width_label, false, false, 0);
+			content_area.pack_start(&width_entry, false, false, 0);
+			content_area.pack_start(&height_label, false, false, 0);
+			content_area.pack_start(&height_entry, false, false, 0);
+			dialog.show_all();
+
+			dialog.connect_response(clone!(@strong this, @strong width_entry, @strong height_entry => move |dialog, _| {
+				match width_entry.get_text().as_str().parse(){
+					Ok(width) => {
+						match height_entry.get_text().as_str().parse() {
+							Ok(height) => {
+								this.area.set_property_width_request(width);
+								this.area.set_property_height_request(height);
+							},
+							Err(_) => {
+								let dialog = MessageDialog::new::<ApplicationWindow>(
+									None,
+									DialogFlags::DESTROY_WITH_PARENT,
+									MessageType::Info,
+									ButtonsType::None,
+									"Height could not be parsed."
+								);
+								dialog.show_all();
+							},
+						}
+					},
+					Err(_) => {
+						let dialog = MessageDialog::new::<ApplicationWindow>(
+							None,
+							DialogFlags::DESTROY_WITH_PARENT,
+							MessageType::Info,
+							ButtonsType::None,
+							"Width could not be parsed."
+						);
+						dialog.show_all();
+					},
+				}
+				dialog.close()
+			}));
+		}));
+
+		page_menu.append(&change_canvas_size);
+		page.set_submenu(Some(&page_menu));
+		menu_bar.append(&page);
 	}
 
 	/// Withholds all drawing specific methods and variables.
