@@ -1,5 +1,5 @@
 use crate::datatypes::*;
-use cairo::{Context, Format, ImageSurface};
+use cairo::{Context, Format, ImageSurface, LineCap, LineJoin};
 use gdk::*;
 use glib::*;
 use gtk::prelude::*;
@@ -288,6 +288,8 @@ impl Application {
 		let current_page = self.current_page.lock().unwrap();
 		let lines = &mut pages[*current_page].lines;
 		let image_buffer = self.image_buffer.lock().unwrap();
+		cr.set_line_cap(LineCap::Round);
+		cr.set_line_join(LineJoin::Round);
 		cr.set_source_rgb(1.0, 1.0, 1.0);
 		cr.paint();
 		for buffered_image in image_buffer.iter() {
@@ -300,7 +302,19 @@ impl Application {
 			cr.paint();
 		}
 		for stroke in lines.iter() {
+			let mut potential_prev_drawpoint: Option<Drawpoint> = None;
 			for drawpoint in stroke {
+				if potential_prev_drawpoint.is_some() {
+					let prev_drawpoint: Drawpoint = potential_prev_drawpoint.unwrap();
+					cr.set_source_rgba(
+						prev_drawpoint.rgba[0],
+						prev_drawpoint.rgba[1],
+						prev_drawpoint.rgba[2],
+						prev_drawpoint.rgba[3],
+					);
+					cr.set_line_width(prev_drawpoint.line_width);
+					cr.line_to(prev_drawpoint.position.0, prev_drawpoint.position.1);
+				}
 				cr.set_source_rgba(
 					drawpoint.rgba[0],
 					drawpoint.rgba[1],
@@ -309,8 +323,9 @@ impl Application {
 				);
 				cr.set_line_width(drawpoint.line_width);
 				cr.line_to(drawpoint.position.0, drawpoint.position.1);
+				cr.stroke();
+				potential_prev_drawpoint = Some(drawpoint.clone());
 			}
-			cr.stroke();
 		}
 	}
 
@@ -616,11 +631,10 @@ impl Application {
 				CurrentDrawTool::RectangleSelection => Rc::clone(&rectangle_selection) as _,
 				CurrentDrawTool::Clear => Rc::clone(&clear) as _,
 			};
-			println!("{:?}", e.get_axis(AxisUse::Pressure).unwrap_or(0.0));
 			let rgba = this.drawing_information.rgba.lock().unwrap();
 			let pen_size = this.drawing_information.pen_size.lock().unwrap();
 			let pen_is_active = this.drawing_information.pen_is_active.lock().unwrap();
-			active_draw_tool.lock().unwrap().manipulate(Rc::clone(&this.pages), Rc::clone(&this.current_page),Rc::clone(&this.image_buffer), e.get_position(), *pen_size, *pen_is_active, *rgba);
+			active_draw_tool.lock().unwrap().manipulate(Rc::clone(&this.pages), Rc::clone(&this.current_page),Rc::clone(&this.image_buffer), e.get_position(), *pen_size*e.get_axis(AxisUse::Pressure).unwrap_or(1.0), *pen_is_active, *rgba);
 			this.area.queue_draw();
 			Inhibit(false)
 		}));
