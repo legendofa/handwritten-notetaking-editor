@@ -379,30 +379,37 @@ impl Application {
 			cr.paint();
 		}
 		for stroke in lines.iter() {
-			let mut potential_prev_drawpoint: Option<Drawpoint> = None;
-			for drawpoint in stroke {
-				if potential_prev_drawpoint.is_some() {
-					let prev_drawpoint: Drawpoint = potential_prev_drawpoint.unwrap();
+			for i in (0..stroke.len()).step_by(2) {
+				if i + 3 < stroke.len() {
+					let slice = &stroke[i..i + 3];
 					cr.set_source_rgba(
-						prev_drawpoint.rgba[0],
-						prev_drawpoint.rgba[1],
-						prev_drawpoint.rgba[2],
-						prev_drawpoint.rgba[3],
+						slice[0].rgba[0],
+						slice[0].rgba[1],
+						slice[0].rgba[2],
+						slice[0].rgba[3],
 					);
-					cr.set_line_width(prev_drawpoint.line_width);
-					cr.line_to(prev_drawpoint.position.0, prev_drawpoint.position.1);
+					cr.set_line_width(slice[0].line_width);
+					cr.curve_to(
+						slice[0].position.0,
+						slice[0].position.1,
+						slice[1].position.0,
+						slice[1].position.1,
+						slice[2].position.0,
+						slice[2].position.1,
+					);
+				} else {
+					let last_drawpoint = stroke.last().unwrap();
+					cr.set_source_rgba(
+						last_drawpoint.rgba[0],
+						last_drawpoint.rgba[1],
+						last_drawpoint.rgba[2],
+						last_drawpoint.rgba[3],
+					);
+					cr.set_line_width(last_drawpoint.line_width);
+					cr.line_to(last_drawpoint.position.0, last_drawpoint.position.1);
 				}
-				cr.set_source_rgba(
-					drawpoint.rgba[0],
-					drawpoint.rgba[1],
-					drawpoint.rgba[2],
-					drawpoint.rgba[3],
-				);
-				cr.set_line_width(drawpoint.line_width);
-				cr.line_to(drawpoint.position.0, drawpoint.position.1);
-				cr.stroke();
-				potential_prev_drawpoint = Some(drawpoint.clone());
 			}
+			cr.stroke();
 		}
 	}
 
@@ -711,7 +718,7 @@ impl Application {
 			let rgba = this.drawing_information.rgba.lock().unwrap();
 			let pen_size = this.drawing_information.pen_size.lock().unwrap();
 			let pen_is_active = this.drawing_information.pen_is_active.lock().unwrap();
-			active_draw_tool.lock().unwrap().manipulate(Rc::clone(&this.pages), Rc::clone(&this.current_page),Rc::clone(&this.image_buffer), e.get_position(), *pen_size*e.get_axis(AxisUse::Pressure).unwrap_or(1.0), *pen_is_active, *rgba);
+			active_draw_tool.lock().unwrap().manipulate(Rc::clone(&this.pages), Rc::clone(&this.current_page),Rc::clone(&this.image_buffer), e.get_position(), *pen_size, *pen_is_active, *rgba);
 			this.area.queue_draw();
 			Inhibit(false)
 		}));
